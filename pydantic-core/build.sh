@@ -35,71 +35,40 @@ export LDFLAGS="-shared"
 export _PYTHON_SYSCONFIGDATA_NAME=_sysconfigdata_${ARCH_TRIPLET}
 export CARGO_BUILD_TARGET=wasm32-wasip1
 
-# maturin >= 1.7 requires extension_suffix in build-details.json.
-# CPython 3.14 WASI cross-build doesn't generate it; patch it here
-# (runs every time, unlike the Makefile recipe which is skipped on cache hit).
-echo "=== build-details.json diagnostics ==="
-echo "PYO3_CROSS_LIB_DIR=${PYO3_CROSS_LIB_DIR:-<not set>}"
-echo "CROSS_PREFIX=${CROSS_PREFIX:-<not set>}"
-echo "--- Searching for ALL build-details.json files ---"
-find "${CROSS_PREFIX}" "${PYO3_CROSS_LIB_DIR:-/nonexistent}" -name 'build-details.json' 2>/dev/null | sort -u | while read f; do
-  echo "FOUND: $f"
-  echo "--- CONTENT of $f ---"
-  cat "$f"
-  echo ""
-done
-echo "--- End search ---"
+# maturin >= 1.7 expects build-details.json with a nested structure:
+#   { "language": {"version": "3.14"}, "implementation": {"name": "CPython"},
+#     "abi": {"flags": [], "extension_suffix": ".cpython-314-wasm32-wasi.so"} }
+# CPython 3.14 WASI cross-build generates a flat sysconfig-variable JSON instead.
+# We replace it with the maturin-expected format every time (cache-safe).
 python3 - <<'PYEOF'
 import json, os, sys
 
 pyo3_dir = os.environ.get('PYO3_CROSS_LIB_DIR', '')
-cross_prefix = os.environ.get('CROSS_PREFIX', '')
-
-print(f'PYO3_CROSS_LIB_DIR = {repr(pyo3_dir)}')
-print(f'CROSS_PREFIX = {repr(cross_prefix)}')
+if not pyo3_dir:
+    print('ERROR: PYO3_CROSS_LIB_DIR is not set', file=sys.stderr)
+    sys.exit(1)
 
 p = pyo3_dir + '/build-details.json'
-print(f'Patching: {repr(p)}')
+print(f'Writing maturin-format build-details.json to: {p}')
 
-try:
-    with open(p) as f:
-        raw = f.read()
-    print(f'--- Raw file content ({len(raw)} bytes) ---')
-    print(raw)
-    print('--- End raw content ---')
-    d = json.loads(raw)
-    print(f'Top-level keys: {list(d.keys())}')
+maturin_build_details = {
+    "language": {"version": "3.14"},
+    "implementation": {"name": "CPython"},
+    "abi": {
+        "flags": [],
+        "extension_suffix": ".cpython-314-wasm32-wasi.so"
+    }
+}
 
-    changed = False
-    # Check if extension_suffix is top-level
-    if 'extension_suffix' not in d:
-        d['extension_suffix'] = d.get('EXT_SUFFIX', '.cpython-314-wasm32-wasi.so')
-        changed = True
-        print(f'Added top-level extension_suffix = {d["extension_suffix"]}')
-    else:
-        print(f'Already has top-level extension_suffix: {d["extension_suffix"]}')
+with open(p, 'w') as f:
+    json.dump(maturin_build_details, f, indent=2)
 
-    if changed:
-        new_content = json.dumps(d, indent=2)
-        with open(p, 'w') as f:
-            f.write(new_content)
-        # Verify the write
-        with open(p) as f:
-            verify = f.read()
-        print(f'--- Verified file after write ({len(verify)} bytes) ---')
-        print(verify)
-        print('--- End verified content ---')
-    else:
-        print('No change needed — verifying current content:')
-        with open(p) as f:
-            verify = f.read()
-        print(verify)
-except Exception as e:
-    print(f'ERROR patching build-details.json: {e}', file=sys.stderr)
-    import traceback; traceback.print_exc()
-    sys.exit(1)
+# Verify
+with open(p) as f:
+    content = f.read()
+print(f'Wrote {len(content)} bytes:')
+print(content)
 PYEOF
-echo "=== end build-details.json diagnostics ==="
 
 cd src
 rm -rf build
