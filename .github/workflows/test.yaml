@@ -45,17 +45,12 @@ jobs:
 
       - name: Fetch WASI WIT dependencies
         run: |
+          # Extract wit/ directory from the componentize-py 0.23.0 source tarball on PyPI
           mkdir -p /tmp/wit-test
-          cd /tmp/wit-test
-          # Sparse-checkout only the wit/deps directory from componentize-py
-          git init
-          git remote add origin https://github.com/bytecodealliance/componentize-py.git
-          git fetch --depth=1 origin v0.23.0
-          git sparse-checkout init --cone
-          git sparse-checkout set wit
-          git checkout FETCH_HEAD
+          curl -fsSL https://files.pythonhosted.org/packages/ac/d6/862d195136a671671ed06363ffcb45dc38682b3b5bb4a8eaa9500464de84/componentize_py-0.23.0.tar.gz \
+            | tar xz -C /tmp/wit-test --strip-components=1 componentize_py-0.23.0/wit
           echo "WIT deps fetched:"
-          ls wit/deps/
+          ls /tmp/wit-test/wit/deps/
 
       - name: Write WIT world and test app
         run: |
