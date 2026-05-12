@@ -7,8 +7,7 @@ if [ ! -e venv ]; then
 fi
 
 . venv/bin/activate
-pip install -r src/requirements/lint.in -c src/requirements/lint.txt
-pip install build wheel setuptools
+pip install build wheel setuptools cython
 
 pushd src
 make .install-cython
