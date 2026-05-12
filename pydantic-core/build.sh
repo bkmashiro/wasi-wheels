@@ -8,7 +8,7 @@ if [ ! -e venv ]; then
 fi
 
 . venv/bin/activate
-pip install typing-extensions wheel maturin setuptools
+pip install typing-extensions wheel 'maturin<1.7' setuptools
 
 ARCH_TRIPLET=_wasi_wasm32-wasi
 
