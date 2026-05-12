@@ -8,7 +8,7 @@ if [ ! -e venv ]; then
 fi
 
 . venv/bin/activate
-pip install typing-extensions wheel 'maturin<1.7' setuptools
+pip install typing-extensions wheel maturin setuptools
 
 ARCH_TRIPLET=_wasi_wasm32-wasi
 
@@ -34,6 +34,27 @@ export RANLIB=true
 export LDFLAGS="-shared"
 export _PYTHON_SYSCONFIGDATA_NAME=_sysconfigdata_${ARCH_TRIPLET}
 export CARGO_BUILD_TARGET=wasm32-wasip1
+
+# maturin >= 1.7 requires extension_suffix in build-details.json.
+# CPython 3.14 WASI cross-build doesn't generate it; patch it here
+# (runs every time, unlike the Makefile recipe which is skipped on cache hit).
+python3 - <<'PYEOF'
+import json, os, sys
+p = os.environ.get('PYO3_CROSS_LIB_DIR', '') + '/build-details.json'
+try:
+    with open(p) as f:
+        d = json.load(f)
+    if 'extension_suffix' not in d:
+        d['extension_suffix'] = d.get('EXT_SUFFIX', '.cpython-314-wasm32-wasi.so')
+        with open(p, 'w') as f:
+            json.dump(d, f, indent=2)
+        print(f'Patched build-details.json: extension_suffix = {d["extension_suffix"]}')
+    else:
+        print(f'build-details.json already has extension_suffix: {d["extension_suffix"]}')
+except Exception as e:
+    print(f'Warning: could not patch build-details.json: {e}', file=sys.stderr)
+PYEOF
+
 cd src
 rm -rf build
 mkdir build
