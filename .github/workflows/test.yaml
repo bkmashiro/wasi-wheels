@@ -1,4 +1,4 @@
-name: Smoke Test
+name: Integration Test
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    name: Runtime smoke test
+    name: componentize-py integration test
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
@@ -20,40 +20,13 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.14'
-          allow-prereleases: true
+          python-version: '3.12'
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-wasip1
-
-      - name: Cache wasi-sdk
-        uses: actions/cache@v4
-        with:
-          path: build/wasi-sdk
-          key: wasi-sdk-33-${{ runner.os }}-${{ runner.arch }}
-
-      - name: Cache CPython WASI build
-        uses: actions/cache@v4
-        with:
-          path: build/cpython-wasi
-          key: cpython-wasi-3.14.0-wasi-sdk-33-${{ runner.os }}-${{ runner.arch }}
-
-      - name: Build prerequisites if not cached
-        shell: bash
-        run: |
-          if [ ! -f build/cpython-wasi/install/bin/python3.14 ]; then
-            echo "Cache miss — building prerequisites"
-            make prerequisites
-          else
-            echo "Cache hit — skipping prerequisites build"
-          fi
+      - name: Install componentize-py
+        run: pip install componentize-py==0.23.0
 
       - name: Install wasmtime
-        shell: bash
         run: |
-          # v44+ ships only .tar.xz; Ubuntu runners have xz-utils pre-installed
           curl -fsSL https://github.com/bytecodealliance/wasmtime/releases/download/v44.0.1/wasmtime-v44.0.1-x86_64-linux.tar.xz \
             | tar xJ -C /tmp
           sudo cp /tmp/wasmtime-v44.0.1-x86_64-linux/wasmtime /usr/local/bin/wasmtime
@@ -67,92 +40,84 @@ jobs:
           cd /tmp/wasi-wheels
           gh release download latest --repo ${{ github.repository }} --pattern "*.tar.gz"
           for f in *.tar.gz; do tar xzf "$f"; done
-          echo "Extracted:"
-          find . -name "*.so" | head -5
+          echo "Extracted wheels:"
+          ls -d */
 
-      - name: Write test script
+      - name: Fetch WASI WIT dependencies
         run: |
-          cat > /tmp/test_wheels.py << 'PYEOF'
-          import sys, os
+          mkdir -p /tmp/wit-test
+          cd /tmp/wit-test
+          # Sparse-checkout only the wit/deps directory from componentize-py
+          git init
+          git remote add origin https://github.com/bytecodealliance/componentize-py.git
+          git fetch --depth=1 origin v0.23.0
+          git sparse-checkout init --cone
+          git sparse-checkout set wit
+          git checkout FETCH_HEAD
+          echo "WIT deps fetched:"
+          ls wit/deps/
 
-          results = {}
-
-          # Test regex
-          try:
-              import regex
-              m = regex.match(r'\w+', 'hello_world')
-              assert m and m.group() == 'hello_world', f"unexpected match: {m}"
-              m2 = regex.findall(r'\d+', 'abc 123 def 456')
-              assert m2 == ['123', '456'], f"findall failed: {m2}"
-              results['regex'] = f"OK (match, findall)"
-          except Exception as e:
-              results['regex'] = f"FAIL: {e}"
-
-          # Test pydantic_core
-          try:
-              import pydantic_core
-              from pydantic_core import core_schema, SchemaValidator
-              schema = SchemaValidator(core_schema.str_schema())
-              v = schema.validate_python("hello")
-              assert v == "hello", f"validation returned {v!r}"
-              results['pydantic_core'] = f"OK (version {pydantic_core.__version__}, SchemaValidator works)"
-          except Exception as e:
-              results['pydantic_core'] = f"FAIL: {e}"
-
-          # Test numpy
-          try:
-              import numpy as np
-              a = np.array([1, 2, 3, 4, 5], dtype=np.float64)
-              assert a.sum() == 15.0, f"sum={a.sum()}"
-              assert a.mean() == 3.0, f"mean={a.mean()}"
-              b = np.zeros((3, 3))
-              b[1, 1] = 1.0
-              assert b[1, 1] == 1.0
-              results['numpy'] = f"OK (version {np.__version__}, array math works)"
-          except Exception as e:
-              results['numpy'] = f"FAIL: {e}"
-
-          print("\n=== Smoke Test Results ===")
-          all_ok = True
-          for pkg, result in results.items():
-              status = "✅" if result.startswith("OK") else "❌"
-              print(f"  {status} {pkg}: {result}")
-              if not result.startswith("OK"):
-                  all_ok = False
-
-          if not all_ok:
-              sys.exit(1)
-          print("\nAll packages OK!")
-          PYEOF
-
-      - name: Find Python WASM binary
-        shell: bash
+      - name: Write WIT world and test app
         run: |
-          echo "=== build/cpython-wasi structure ==="
-          find build/cpython-wasi -name "python*" -not -path "*/lib/*" | sort
-          echo ""
-          echo "=== install/bin ==="
-          ls -la build/cpython-wasi/install/bin/ 2>/dev/null || echo "(no install/bin)"
-          echo ""
-          echo "=== build root ==="
-          ls build/cpython-wasi/ | head -20
+          mkdir -p /tmp/wit-test/wit
 
-      - name: Run smoke tests
-        shell: bash
+          # WIT world — no package declaration (inherits from componentize-py:init)
+          cat > /tmp/wit-test/wit/world.wit << 'EOF'
+          world wasi-wheels-test {
+            include wasi:cli/command@0.2.0;
+          }
+          EOF
+
+          # Test app — all imports at top level (required for componentize-py static analysis)
+          cat > /tmp/test_app.py << 'EOF'
+          import sys
+          import regex
+          import pydantic_core
+          import numpy as np
+          from pydantic_core import core_schema, SchemaValidator
+          import wit_world
+          from wit_world import exports
+
+          class Run(exports.Run):
+              def run(self) -> None:
+                  results = {}
+
+                  # regex
+                  m = regex.match(r'\w+', 'hello_world')
+                  assert m and m.group() == 'hello_world', f"regex match failed: {m}"
+                  m2 = regex.findall(r'\d+', 'abc 123 def 456')
+                  assert m2 == ['123', '456'], f"regex findall failed: {m2}"
+                  results['regex'] = 'match + findall OK'
+
+                  # pydantic_core
+                  schema = SchemaValidator(core_schema.str_schema())
+                  v = schema.validate_python("hello")
+                  assert v == "hello", f"pydantic validation returned {v!r}"
+                  results['pydantic_core'] = f'v{pydantic_core.__version__} SchemaValidator OK'
+
+                  # numpy
+                  a = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+                  assert a.sum() == 15.0, f"numpy sum failed: {a.sum()}"
+                  b = np.zeros((3, 3))
+                  b[1, 1] = 42.0
+                  assert b[1, 1] == 42.0, "numpy matrix assignment failed"
+                  results['numpy'] = f'v{np.__version__} array math OK'
+
+                  print("\n=== WASI Wheels Integration Test ===")
+                  all_ok = True
+                  for pkg, result in results.items():
+                      print(f"  [OK] {pkg}: {result}")
+                  print("\nAll packages OK!")
+          EOF
+
+      - name: Componentize test app
         run: |
-          WHEELS_DIR=/tmp/wasi-wheels
-          # CPython WASI installs the binary as python3.14.wasm (not python3.14)
-          PYTHON_WASM=build/cpython-wasi/install/bin/python3.14.wasm
-          PYTHON_HOME=build/cpython-wasi/install
+          cd /tmp/wit-test
+          PYTHONPATH=/tmp/wasi-wheels \
+            componentize-py -d wit -w wasi-wheels-test \
+            componentize /tmp/test_app -o /tmp/test.wasm
+          echo "Component size: $(wc -c < /tmp/test.wasm) bytes"
 
-          echo "Python WASM: $PYTHON_WASM ($(wc -c < $PYTHON_WASM) bytes)"
-          echo "PYTHONHOME:  $PYTHON_HOME"
-
-          wasmtime run \
-            --dir "$PYTHON_HOME"::/cpython \
-            --dir "$WHEELS_DIR"::/wheels \
-            --dir /tmp::/tmp \
-            --env PYTHONHOME=/cpython \
-            --env PYTHONPATH=/wheels \
-            "$PYTHON_WASM" \
-            -- /tmp/test_wheels.py
+      - name: Run integration test
+        run: |
+          wasmtime run /tmp/test.wasm
