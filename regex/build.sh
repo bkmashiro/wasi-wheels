@@ -3,7 +3,7 @@
 set -eou pipefail
 
 if [ ! -e venv ]; then
-  python3.12 -v -m venv venv
+  python3.14 -v -m venv venv
 fi
 
 which python3
@@ -15,10 +15,10 @@ ARCH_TRIPLET=_wasi_wasm32-wasi
 export CC="${WASI_SDK_PATH}/bin/clang"
 export CXX="${WASI_SDK_PATH}/bin/clang++"
 
-export PYTHONPATH=$CROSS_PREFIX/lib/python3.12
+export PYTHONPATH=$CROSS_PREFIX/lib/python3.14
 
-export CFLAGS="-I${CROSS_PREFIX}/include/python3.12 -D__EMSCRIPTEN__=1"
-export CXXFLAGS="-I${CROSS_PREFIX}/include/python3.12"
+export CFLAGS="-I${CROSS_PREFIX}/include/python3.14 -D__EMSCRIPTEN__=1"
+export CXXFLAGS="-I${CROSS_PREFIX}/include/python3.14"
 export LDSHARED=${CC}
 export AR="${WASI_SDK_PATH}/bin/ar"
 export RANLIB=true

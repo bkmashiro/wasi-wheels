@@ -15,12 +15,12 @@ export CXX="${WASI_SDK_PATH}/bin/clang++"
 
 export PYTHONPATH=$CROSS_PREFIX/lib/python3.14
 
-export CFLAGS="--target=wasm32-wasip2 -I${CROSS_PREFIX}/include/python3.14 -D__EMSCRIPTEN__=1 -DNPY_NO_SIGNAL"
-export CXXFLAGS="--target=wasm32-wasip2 -I${CROSS_PREFIX}/include/python3.14"
+export CFLAGS="--target=wasm32-wasip1 -I${CROSS_PREFIX}/include/python3.14 -D__EMSCRIPTEN__=1 -DNPY_NO_SIGNAL"
+export CXXFLAGS="--target=wasm32-wasip1 -I${CROSS_PREFIX}/include/python3.14"
 export LDSHARED=${CC}
 export AR="${WASI_SDK_PATH}/bin/ar"
 export RANLIB=true
-export LDFLAGS="--target=wasm32-wasip2 -shared ${CROSS_PREFIX}/lib/libpython3.14.so"
+export LDFLAGS="--target=wasm32-wasip1 -shared ${CROSS_PREFIX}/lib/libpython3.14.so"
 export _PYTHON_SYSCONFIGDATA_NAME=_sysconfigdata_${ARCH_TRIPLET}
 export NPY_DISABLE_SVML=1
 export NPY_BLAS_ORDER=

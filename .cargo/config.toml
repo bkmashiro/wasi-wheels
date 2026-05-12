@@ -1,9 +1,9 @@
 
-[target.wasm32-wasi]
+[target.wasm32-wasip1]
 rustflags = [
     # the self-contained libs are native; these two args combined point wasm-ld at our wasi-sdk's libc
     "-C", "link-self-contained=no",
-    # "-C", "link-args=-L$PWD/build/wasi-sdk/build/install/opt/wasi-sdk/share/wasi-sysroot/lib/wasm32-wasi",
+    # "-C", "link-args=-L$PWD/build/wasi-sdk/build/install/opt/wasi-sdk/share/wasi-sysroot/lib/wasm32-wasip1",
 
     # "--shared" requires "--experimental-pic"
     "-C", "link-args=--experimental-pic",

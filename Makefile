@@ -1,7 +1,9 @@
 BUILD_DIR := $(abspath build)
 WASI_SDK := $(BUILD_DIR)/wasi-sdk
-CPYTHON := $(abspath cpython/builddir/wasi/install)
-SYSCONFIG := $(abspath cpython/builddir/wasi/build/lib.wasi-wasm32-3.14)
+CPYTHON_SRC := $(BUILD_DIR)/cpython-src
+CPYTHON_HOST := $(BUILD_DIR)/cpython-host
+CPYTHON := $(BUILD_DIR)/cpython-wasi/install
+SYSCONFIG := $(BUILD_DIR)/cpython-wasi/build/lib.wasi-wasm32-3.14
 OUTPUTS := \
 	$(BUILD_DIR)/aiohttp-wasi.tar.gz \
 	$(BUILD_DIR)/charset_normalizer-wasi.tar.gz \
@@ -18,10 +20,17 @@ OUTPUTS := \
 	$(BUILD_DIR)/yaml-wasi.tar.gz \
 	$(BUILD_DIR)/_yaml-wasi.tar.gz \
 	$(BUILD_DIR)/yarl-wasi.tar.gz
-WASI_SDK_VERSION := 27
+
+WASI_SDK_VERSION := 33
+CPYTHON_VERSION := 3.14.0
+CPYTHON_TARBALL := Python-$(CPYTHON_VERSION).tgz
+CPYTHON_URL := https://www.python.org/ftp/python/$(CPYTHON_VERSION)/$(CPYTHON_TARBALL)
+
 HOST_OS := $(shell uname -s | sed -e 's/Darwin/macos/' -e 's/Linux/linux/')
+# wasi-sdk-33 Linux release uses "arm64" for aarch64 and "x86_64" for x86_64
 HOST_ARCH := $(shell uname -m | sed -e 's/aarch64/arm64/')
-PYO3_CROSS_LIB_DIR := $(abspath cpython/builddir/wasi/build/lib.wasi-wasm32-3.14)
+
+PYO3_CROSS_LIB_DIR := $(SYSCONFIG)
 
 .PHONY: all
 all: $(OUTPUTS)
@@ -43,7 +52,7 @@ $(BUILD_DIR)/charset_normalizer-wasi.tar.gz: $(WASI_SDK) $(CPYTHON)
 $(BUILD_DIR)/frozenlist-wasi.tar.gz: $(WASI_SDK) $(CPYTHON)
 	@mkdir -p "$(@D)"
 	(cd frozenlist && CROSS_PREFIX=$(CPYTHON) WASI_SDK_PATH=$(WASI_SDK) bash build.sh)
-	cp -a frozenlist/src/build/*/frozenlist "$(@D)"
+	cp -a frozenlist/src/build/lib.*/frozenlist "$(@D)"
 	(cd "$(@D)" && tar czf frozenlist-wasi.tar.gz frozenlist)
 
 $(BUILD_DIR)/multidict-wasi.tar.gz: $(WASI_SDK) $(CPYTHON)
@@ -114,50 +123,73 @@ $(BUILD_DIR)/yarl-wasi.tar.gz: $(WASI_SDK) $(CPYTHON)
 	cp -a yarl/src/build/*/yarl "$(@D)"
 	(cd "$(@D)" && tar czf yarl-wasi.tar.gz yarl)
 
+# Download and unpack wasi-sdk-33
 $(WASI_SDK):
 	@mkdir -p "$(@D)"
 	(cd "$(@D)" && \
-		curl -LO https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION}/wasi-sdk-${WASI_SDK_VERSION}.0-${HOST_ARCH}-${HOST_OS}.tar.gz && \
-		tar xf wasi-sdk-${WASI_SDK_VERSION}.0-${HOST_ARCH}-${HOST_OS}.tar.gz && \
-		mv wasi-sdk-${WASI_SDK_VERSION}.0-${HOST_ARCH}-${HOST_OS} wasi-sdk && \
-		rm "wasi-sdk-$(WASI_SDK_VERSION).0-${HOST_ARCH}-${HOST_OS}.tar.gz")
+		curl -fL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-$(WASI_SDK_VERSION)/wasi-sdk-$(WASI_SDK_VERSION).0-$(HOST_ARCH)-$(HOST_OS).tar.gz \
+		     -o wasi-sdk.tar.gz && \
+		tar xf wasi-sdk.tar.gz && \
+		mv wasi-sdk-$(WASI_SDK_VERSION).0-$(HOST_ARCH)-$(HOST_OS) wasi-sdk && \
+		rm wasi-sdk.tar.gz)
 
-$(CPYTHON): $(WASI_SDK)
-	@mkdir -p "$(@D)"
-	@mkdir -p "$(@D)"/../build
-	@echo "$(@D)"
-	(cd "$(@D)"/../build && ../../configure --prefix=$$(pwd)/install && make)
-	(cd "$(@D)" && \
+# Download and unpack CPython 3.14 source tarball (no submodule needed)
+$(CPYTHON_SRC):
+	@mkdir -p "$(BUILD_DIR)"
+	(cd "$(BUILD_DIR)" && \
+		curl -fL $(CPYTHON_URL) -o $(CPYTHON_TARBALL) && \
+		tar xf $(CPYTHON_TARBALL) && \
+		mv Python-$(CPYTHON_VERSION) cpython-src && \
+		rm $(CPYTHON_TARBALL))
+
+# Build a native host Python (required as --with-build-python for cross-compile)
+$(CPYTHON_HOST)/bin/python3: $(CPYTHON_SRC)
+	@mkdir -p $(CPYTHON_HOST)
+	(cd $(CPYTHON_HOST) && \
+		$(CPYTHON_SRC)/configure \
+			--prefix=$(CPYTHON_HOST) \
+			--without-ensurepip && \
+		make -j$$(nproc) && \
+		make install)
+
+# Cross-compile CPython for wasm32-wasip1 using official Tools/wasm/wasi-env
+# Note: CPython 3.14 upstream marks --enable-wasm-dynamic-linking as "not yet
+# implemented" for WASI, but the underlying linker support works fine.  We patch
+# the configure guard away so we can still build a PIC-compiled libpython3.14.so
+# that extension modules can dlopen-link against.
+$(CPYTHON): $(WASI_SDK) $(CPYTHON_SRC) $(CPYTHON_HOST)/bin/python3
+	@mkdir -p $(BUILD_DIR)/cpython-wasi
+	# Patch out the configure guard that blocks --enable-wasm-dynamic-linking on WASI
+	sed -i 's/as_fn_error \$$? "WASI dynamic linking is not implemented yet\." "\$$LINENO" 5/: ;; #  patched: WASI dynamic linking allowed/g' \
+		$(CPYTHON_SRC)/configure
+	(cd $(BUILD_DIR)/cpython-wasi && \
 		WASI_SDK_PATH=$(WASI_SDK) \
-		CONFIG_SITE=../../Tools/wasm/wasi/config.site-wasm32-wasi \
+		CONFIG_SITE=$(CPYTHON_SRC)/Tools/wasm/wasi/config.site-wasm32-wasi \
 		CFLAGS=-fPIC \
-		../../Tools/wasm/wasi-env \
-		../../configure \
+		$(CPYTHON_SRC)/Tools/wasm/wasi-env \
+		$(CPYTHON_SRC)/configure \
 		-C \
-		--host=wasm32-unknown-wasip2 \
-		--build=$$(../../config.guess) \
-		--with-build-python=$$(if [ -e $$(pwd)/../build/python.exe ]; \
-			then echo $$(pwd)/../build/python.exe; \
-			else echo $$(pwd)/../build/python; \
-			fi) \
+		--host=wasm32-wasip1 \
+		--build=$$($(CPYTHON_SRC)/config.guess) \
+		--with-build-python=$(CPYTHON_HOST)/bin/python3 \
 		--prefix=$$(pwd)/install \
 		--enable-wasm-dynamic-linking \
-		--enable-ipv6 \
+		--disable-ipv6 \
 		--disable-test-modules && \
-		make build_all install && \
+		make -j$$(nproc) build_all install && \
 		$(WASI_SDK)/bin/clang \
-		--target=wasm32-wasip2 \
+		--target=wasm32-wasip1 \
 		-shared \
 		-o $(CPYTHON)/lib/libpython3.14.so \
 		-Wl,--whole-archive $(CPYTHON)/lib/libpython3.14.a -Wl,--no-whole-archive \
-		$(CPYTHON)/../Modules/_hacl/libHacl_HMAC.a \
-		$(CPYTHON)/../Modules/_hacl/libHacl_Hash_BLAKE2.a \
-		$(CPYTHON)/../Modules/_hacl/libHacl_Hash_MD5.a \
-		$(CPYTHON)/../Modules/_hacl/libHacl_Hash_SHA1.a \
-		$(CPYTHON)/../Modules/_hacl/libHacl_Hash_SHA2.a \
-		$(CPYTHON)/../Modules/_hacl/libHacl_Hash_SHA3.a \
-		$(CPYTHON)/../Modules/_decimal/libmpdec/libmpdec.a \
-		$(CPYTHON)/../Modules/expat/libexpat.a \
+		$(BUILD_DIR)/cpython-wasi/Modules/_hacl/libHacl_HMAC.a \
+		$(BUILD_DIR)/cpython-wasi/Modules/_hacl/libHacl_Hash_BLAKE2.a \
+		$(BUILD_DIR)/cpython-wasi/Modules/_hacl/libHacl_Hash_MD5.a \
+		$(BUILD_DIR)/cpython-wasi/Modules/_hacl/libHacl_Hash_SHA1.a \
+		$(BUILD_DIR)/cpython-wasi/Modules/_hacl/libHacl_Hash_SHA2.a \
+		$(BUILD_DIR)/cpython-wasi/Modules/_hacl/libHacl_Hash_SHA3.a \
+		$(BUILD_DIR)/cpython-wasi/Modules/_decimal/libmpdec/libmpdec.a \
+		$(BUILD_DIR)/cpython-wasi/Modules/expat/libexpat.a \
 		-lwasi-emulated-signal \
 		-lwasi-emulated-getpid \
 		-lwasi-emulated-process-clocks \
@@ -165,7 +197,7 @@ $(CPYTHON): $(WASI_SDK)
 
 .PHONY: clean
 clean:
-	rm -rf $(BUILD_DIR) cpython/builddir numpy/numpy/build
+	rm -rf $(BUILD_DIR)
 	find . -name 'venv' -maxdepth 2 | xargs -I {} rm -rf {}
 	find . -name 'build' -maxdepth 3 | xargs -I {} rm -rf {}
 	find . -name 'dist' -maxdepth 3 | xargs -I {} rm -rf {}

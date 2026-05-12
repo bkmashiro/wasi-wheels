@@ -19,9 +19,10 @@ jobs:
         with:
           submodules: 'recursive'
 
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.14'
+          allow-prereleases: true
 
       - uses: actions/setup-node@v3.8.1
 
@@ -31,15 +32,15 @@ jobs:
           toolchain: stable
           profile: minimal
           override: true
-          target: wasm32-wasi
+          target: wasm32-wasip1
 
-      - name: Cache CPython
-        id: cache-cpython-wasi
+      - name: Cache wasi-sdk and CPython build
+        id: cache-wasi-build
         uses: actions/cache@v3
         with:
-          path: cpython/builddir/wasi
-          key: cpython-wasi
-          enableCrossOsArchive: true
+          path: build/cpython-wasi
+          key: cpython-wasi-3.14.0-wasi-sdk-33-${{ runner.os }}-${{ runner.arch }}
+          enableCrossOsArchive: false
 
       - name: Build
         shell: bash
