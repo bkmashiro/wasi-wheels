@@ -1,20 +1,21 @@
 #!/bin/bash
-# Build Pillow 12.x for wasm32-wasip1 (PNG-only, zlib-only build)
-# PNG support in Pillow uses zlib's inflate() directly (ZipDecode.c) — no libpng needed.
+# Build Pillow 11.x for wasm32-wasip1 (PNG-only, zlib-only build)
+# Using 11.x instead of 12.x to avoid the pil_imaging_mode static library
+# introduced in 12.0 whose build_clib step is skipped in cross-compile contexts.
 
 set -eou pipefail
 
 WASI_SYSROOT="${WASI_SDK_PATH}/share/wasi-sysroot"
 ZLIB_PREFIX="${WASI_SYSROOT}"  # install zlib into sysroot so Pillow finds it
 
-PILLOW_VERSION="12.2.0"
+PILLOW_VERSION="11.1.0"
 PILLOW_SRC="pillow-${PILLOW_VERSION}"
 
 if [ ! -e venv ]; then
   python3.14 -m venv venv
 fi
 . venv/bin/activate
-pip install wheel setuptools pybind11
+pip install wheel setuptools
 
 # ── Step 1: cross-compile zlib for wasm32-wasip1 ──────────────────────────────
 if [ ! -f "${ZLIB_PREFIX}/lib/libz.a" ]; then
@@ -38,7 +39,7 @@ fi
 # ── Step 2: download Pillow source ────────────────────────────────────────────
 if [ ! -d "${PILLOW_SRC}" ]; then
   [ -f "${PILLOW_SRC}.tar.gz" ] || \
-    curl -fsSL "https://files.pythonhosted.org/packages/8c/21/c2bcdd5906101a30244eaffc1b6e6ce71a31bd0742a01eb89e660ebfac2d/pillow-12.2.0.tar.gz" \
+    curl -fsSL "https://files.pythonhosted.org/packages/f3/af/c097e544e7bd278333db77933e535098c259609c4eb3b85381109602fb5b/pillow-11.1.0.tar.gz" \
       -o "${PILLOW_SRC}.tar.gz"
   tar xzf "${PILLOW_SRC}.tar.gz"
 fi
@@ -46,21 +47,19 @@ fi
 # ── Step 3: clang wrapper that strips host include paths ──────────────────────
 # setuptools/distutils always appends -I/usr/include and -I/usr/local/include
 # from the host Python's sysconfig, regardless of DISABLE_PLATFORM_GUESSING.
-# These leak Linux-specific headers (features-time64.h → bits/wordsize.h) into
-# the WASI cross-compile.  The wrapper below filters them out before calling
-# the real clang, which is the only reliable way to block them.
+# These leak Linux-specific headers into the WASI cross-compile.
+# The wrapper filters them out before calling the real clang.
 WRAPPER_DIR="$(mktemp -d)"
 REAL_CLANG="${WASI_SDK_PATH}/bin/clang"
 REAL_CLANGXX="${WASI_SDK_PATH}/bin/clang++"
 
 cat > "${WRAPPER_DIR}/clang" <<'WRAPPER'
 #!/bin/bash
-# Strip host system include dirs that break WASI cross-compilation
 args=()
 for arg in "$@"; do
   case "$arg" in
     -I/usr/include|-I/usr/include/*|-I/usr/local/include|-I/usr/local/include/*)
-      ;; # drop
+      ;; # drop host include paths
     *)
       args+=("$arg") ;;
   esac
@@ -70,20 +69,8 @@ WRAPPER
 sed -i "s|@REAL_CLANG@|${REAL_CLANG}|g" "${WRAPPER_DIR}/clang"
 chmod +x "${WRAPPER_DIR}/clang"
 
-cat > "${WRAPPER_DIR}/clang++" <<'WRAPPER'
-#!/bin/bash
-args=()
-for arg in "$@"; do
-  case "$arg" in
-    -I/usr/include|-I/usr/include/*|-I/usr/local/include|-I/usr/local/include/*)
-      ;; # drop
-    *)
-      args+=("$arg") ;;
-  esac
-done
-exec "@REAL_CLANGXX@" "${args[@]}"
-WRAPPER
-sed -i "s|@REAL_CLANGXX@|${REAL_CLANGXX}|g" "${WRAPPER_DIR}/clang++"
+cp "${WRAPPER_DIR}/clang" "${WRAPPER_DIR}/clang++"
+sed -i "s|${REAL_CLANG}|${REAL_CLANGXX}|g" "${WRAPPER_DIR}/clang++"
 chmod +x "${WRAPPER_DIR}/clang++"
 
 # ── Step 4: build Pillow (PNG/zlib only, all other formats disabled) ──────────
