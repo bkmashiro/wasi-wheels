@@ -54,7 +54,9 @@ export RANLIB="${WASI_SDK_PATH}/bin/llvm-ranlib"
 export STRIP="${WASI_SDK_PATH}/bin/llvm-strip"
 
 export CFLAGS="--target=wasm32-wasip1 --sysroot=${WASI_SYSROOT} \
-  -I${WASI_SYSROOT}/include \
+  -nostdinc \
+  -isystem ${WASI_SYSROOT}/include \
+  -isystem ${WASI_SYSROOT}/include/wasm32-wasip1 \
   -I${CROSS_PREFIX}/include/python3.14 \
   -D__EMSCRIPTEN__=1 \
   -fPIC"
