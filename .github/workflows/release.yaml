@@ -31,12 +31,29 @@ jobs:
         with:
           targets: wasm32-wasip1
 
-      - name: Cache wasi-sdk and CPython build
-        id: cache-wasi-build
+      - name: Cache wasi-sdk
+        uses: actions/cache@v4
+        with:
+          path: build/wasi-sdk
+          key: wasi-sdk-33-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Cache CPython WASI build
         uses: actions/cache@v4
         with:
           path: build/cpython-wasi
           key: cpython-wasi-3.14.0-wasi-sdk-33-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Cache Cargo registry and pydantic-core target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            pydantic-core/src/target
+          key: cargo-pydantic-${{ runner.os }}-${{ hashFiles('pydantic-core/src/Cargo.lock') }}
+          restore-keys: |
+            cargo-pydantic-${{ runner.os }}-
 
       - name: Build prerequisites (wasi-sdk + CPython)
         shell: bash
