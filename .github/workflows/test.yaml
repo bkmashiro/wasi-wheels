@@ -141,21 +141,12 @@ jobs:
         shell: bash
         run: |
           WHEELS_DIR=/tmp/wasi-wheels
+          # CPython WASI installs the binary as python3.14.wasm (not python3.14)
+          PYTHON_WASM=build/cpython-wasi/install/bin/python3.14.wasm
+          PYTHON_HOME=build/cpython-wasi/install
 
-          # Find the WASM Python binary (may be named python3.14 or python.wasm)
-          PYTHON_WASM=$(find build/cpython-wasi -name "python3.14" -o -name "python.wasm" \
-            | grep -v '/lib/' | head -1)
-
-          if [ -z "$PYTHON_WASM" ]; then
-            echo "ERROR: Could not find Python WASM binary"
-            find build/cpython-wasi -maxdepth 4 | sort
-            exit 1
-          fi
-          echo "Using Python WASM: $PYTHON_WASM"
-
-          # Determine the PYTHONHOME dir (parent of lib/python3.14)
-          PYTHON_HOME=$(find build/cpython-wasi -path "*/lib/python3.14" -type d | head -1 | sed 's|/lib/python3.14||')
-          echo "PYTHONHOME base: $PYTHON_HOME"
+          echo "Python WASM: $PYTHON_WASM ($(wc -c < $PYTHON_WASM) bytes)"
+          echo "PYTHONHOME:  $PYTHON_HOME"
 
           wasmtime run \
             --dir "$PYTHON_HOME"::/cpython \
