@@ -6,11 +6,11 @@ CPYTHON := $(BUILD_DIR)/cpython-wasi/install
 SYSCONFIG := $(BUILD_DIR)/cpython-wasi/build/lib.wasi-wasm32-3.14
 OUTPUTS := \
 	$(BUILD_DIR)/numpy-wasi.tar.gz \
-	$(BUILD_DIR)/pandas-wasi.tar.gz \
 	$(BUILD_DIR)/pydantic_core-wasi.tar.gz \
 	$(BUILD_DIR)/regex-wasi.tar.gz
 
 # Disabled (require WASI-incompatible deps or not needed for eval functions):
+#	$(BUILD_DIR)/pandas-wasi.tar.gz \
 #	$(BUILD_DIR)/aiohttp-wasi.tar.gz \
 #	$(BUILD_DIR)/charset_normalizer-wasi.tar.gz \
 #	$(BUILD_DIR)/frozenlist-wasi.tar.gz \
