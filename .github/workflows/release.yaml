@@ -40,19 +40,19 @@ jobs:
 
       - name: Build prerequisites (wasi-sdk + CPython)
         shell: bash
-        run: make build/wasi-sdk build/cpython-wasi/install
+        run: make prerequisites
 
       - name: Build numpy
         shell: bash
-        run: make build/numpy-wasi.tar.gz
+        run: make numpy
 
       - name: Build pydantic_core
         shell: bash
-        run: make build/pydantic_core-wasi.tar.gz
+        run: make pydantic
 
       - name: Build regex
         shell: bash
-        run: make build/regex-wasi.tar.gz
+        run: make regex
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4

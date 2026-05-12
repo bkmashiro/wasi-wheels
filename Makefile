@@ -34,8 +34,14 @@ HOST_ARCH := $(shell uname -m | sed -e 's/aarch64/arm64/')
 
 PYO3_CROSS_LIB_DIR := $(SYSCONFIG)
 
-.PHONY: all
+.PHONY: all prerequisites numpy pydantic regex
 all: $(OUTPUTS)
+
+# Convenience phony aliases for CI steps (avoids absolute-path issues with $(abspath))
+prerequisites: $(WASI_SDK) $(CPYTHON)
+numpy: $(BUILD_DIR)/numpy-wasi.tar.gz
+pydantic: $(BUILD_DIR)/pydantic_core-wasi.tar.gz
+regex: $(BUILD_DIR)/regex-wasi.tar.gz
 
 $(OUTPUTS): $(WASI_SDK) $(CPYTHON)
 
