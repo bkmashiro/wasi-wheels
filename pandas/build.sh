@@ -7,7 +7,7 @@ if [ ! -e venv ]; then
 fi
 
 . venv/bin/activate
-pip install build wheel setuptools meson[ninja]==1.2.1 meson-python==0.13.1 versioneer[toml] 'numpy<2' Cython==3.0.5
+pip install build wheel 'setuptools<72' meson[ninja]==1.2.1 meson-python==0.13.1 versioneer[toml] 'numpy<2' Cython==3.0.5
 
 # Truly, the "Good Code"
 #
