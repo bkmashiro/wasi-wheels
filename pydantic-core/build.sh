@@ -17,13 +17,19 @@ export CXX="${WASI_SDK_PATH}/bin/clang++"
 
 export PYTHONPATH=$CROSS_PREFIX/lib/python3.14
 
-# wasi-sdk-33 uses wasm-ld from LLVM 20. --experimental-pic was removed in
-# LLVM 18+ (PIC is now stable for wasm). Drop it; relocation-model=pic is enough.
-# linker-plugin-lto can mismatch between Rust's LLVM and wasi-sdk's LLVM, so drop it too.
+# --experimental-pic: still present and required in wasm-ld 20 (LLVM 20.1.0).
+# --unresolved-symbols=import-dynamic: critical for Python extension modules —
+#   Python C API symbols (PyModule_Create2 etc.) are undefined at link time and
+#   must become wasm dynamic imports resolved at load time by the Python runtime.
+#   Without this flag wasm-ld errors on every undefined Python symbol → cargo 101.
+# linker-plugin-lto dropped: requires matching LLVM between Rust toolchain and
+#   wasm-ld; version mismatches cause LTO bitcode format errors.
 RUSTFLAGS="${RUSTFLAGS:-} -C link-args=-L${WASI_SDK_PATH}/share/wasi-sysroot/lib/wasm32-wasip1/"
 RUSTFLAGS="${RUSTFLAGS} -C linker=${WASI_SDK_PATH}/bin/wasm-ld"
 RUSTFLAGS="${RUSTFLAGS} -C link-self-contained=no"
+RUSTFLAGS="${RUSTFLAGS} -C link-args=--experimental-pic"
 RUSTFLAGS="${RUSTFLAGS} -C link-args=--shared"
+RUSTFLAGS="${RUSTFLAGS} -C link-args=--unresolved-symbols=import-dynamic"
 RUSTFLAGS="${RUSTFLAGS} -C relocation-model=pic"
 export RUSTFLAGS="$RUSTFLAGS"
 
