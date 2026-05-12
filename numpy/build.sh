@@ -29,4 +29,5 @@ export NPY_LAPACK_ORDER=
 pip install cython==3.0.12 setuptools==71.1.0
 ( cd src && python3 setup.py build --disable-optimization -j 4 )
 
+mkdir -p build
 cp -a src/build/lib.*/numpy build/
