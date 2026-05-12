@@ -79,30 +79,11 @@ export DISABLE_PLATFORM_GUESSING=1
 export PYTHONPATH="${CROSS_PREFIX}/lib/python3.14"
 export _PYTHON_SYSCONFIGDATA_NAME=_sysconfigdata__wasi_wasm32-wasi
 
-python3 setup.py build_ext \
-  --plat-name wasm32-wasip1 \
-  -C pillow-configuration=jpeg=disable \
-  -C pillow-configuration=tiff=disable \
-  -C pillow-configuration=webp=disable \
-  -C pillow-configuration=jpeg2000=disable \
-  -C pillow-configuration=imagequant=disable \
-  -C pillow-configuration=xcb=disable \
-  -C pillow-configuration=avif=disable \
-  -C pillow-configuration=freetype=disable \
-  -C pillow-configuration=lcms=disable \
-  -C pillow-configuration=raqm=disable
+DISABLE_FLAGS="--disable-jpeg --disable-tiff --disable-webp --disable-jpeg2000 \
+  --disable-imagequant --disable-xcb --disable-avif --disable-freetype \
+  --disable-lcms --disable-raqm"
 
-python3 setup.py bdist_wheel \
-  --plat-name wasm32-wasip1 \
-  -C pillow-configuration=jpeg=disable \
-  -C pillow-configuration=tiff=disable \
-  -C pillow-configuration=webp=disable \
-  -C pillow-configuration=jpeg2000=disable \
-  -C pillow-configuration=imagequant=disable \
-  -C pillow-configuration=xcb=disable \
-  -C pillow-configuration=avif=disable \
-  -C pillow-configuration=freetype=disable \
-  -C pillow-configuration=lcms=disable \
-  -C pillow-configuration=raqm=disable
+python3 setup.py build_ext --plat-name wasm32-wasip1 $DISABLE_FLAGS
+python3 setup.py bdist_wheel --plat-name wasm32-wasip1 $DISABLE_FLAGS
 
 wheel unpack --dest build dist/pillow-*.whl 2>/dev/null || wheel unpack --dest build dist/Pillow-*.whl
