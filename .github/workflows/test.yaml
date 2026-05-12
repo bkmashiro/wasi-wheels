@@ -1,0 +1,141 @@
+name: Smoke Test
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+
+jobs:
+  test:
+    name: Runtime smoke test
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          allow-prereleases: true
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+
+      - name: Cache wasi-sdk
+        uses: actions/cache@v4
+        with:
+          path: build/wasi-sdk
+          key: wasi-sdk-33-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Cache CPython WASI build
+        uses: actions/cache@v4
+        with:
+          path: build/cpython-wasi
+          key: cpython-wasi-3.14.0-wasi-sdk-33-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Build prerequisites if not cached
+        shell: bash
+        run: |
+          if [ ! -f build/cpython-wasi/install/bin/python3.14 ]; then
+            echo "Cache miss — building prerequisites"
+            make prerequisites
+          else
+            echo "Cache hit — skipping prerequisites build"
+          fi
+
+      - name: Install wasmtime
+        shell: bash
+        run: |
+          curl -fsSL https://github.com/bytecodealliance/wasmtime/releases/download/v44.0.1/wasmtime-v44.0.1-x86_64-linux.tar.gz \
+            | tar xz -C /tmp
+          sudo cp /tmp/wasmtime-v44.0.1-x86_64-linux/wasmtime /usr/local/bin/wasmtime
+          wasmtime --version
+
+      - name: Download release wheels
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p /tmp/wasi-wheels
+          cd /tmp/wasi-wheels
+          gh release download latest --repo ${{ github.repository }} --pattern "*.tar.gz"
+          for f in *.tar.gz; do tar xzf "$f"; done
+          echo "Extracted:"
+          find . -name "*.so" | head -5
+
+      - name: Write test script
+        run: |
+          cat > /tmp/test_wheels.py << 'PYEOF'
+          import sys, os
+
+          results = {}
+
+          # Test regex
+          try:
+              import regex
+              m = regex.match(r'\w+', 'hello_world')
+              assert m and m.group() == 'hello_world', f"unexpected match: {m}"
+              m2 = regex.findall(r'\d+', 'abc 123 def 456')
+              assert m2 == ['123', '456'], f"findall failed: {m2}"
+              results['regex'] = f"OK (match, findall)"
+          except Exception as e:
+              results['regex'] = f"FAIL: {e}"
+
+          # Test pydantic_core
+          try:
+              import pydantic_core
+              from pydantic_core import core_schema, SchemaValidator
+              schema = SchemaValidator(core_schema.str_schema())
+              v = schema.validate_python("hello")
+              assert v == "hello", f"validation returned {v!r}"
+              results['pydantic_core'] = f"OK (version {pydantic_core.__version__}, SchemaValidator works)"
+          except Exception as e:
+              results['pydantic_core'] = f"FAIL: {e}"
+
+          # Test numpy
+          try:
+              import numpy as np
+              a = np.array([1, 2, 3, 4, 5], dtype=np.float64)
+              assert a.sum() == 15.0, f"sum={a.sum()}"
+              assert a.mean() == 3.0, f"mean={a.mean()}"
+              b = np.zeros((3, 3))
+              b[1, 1] = 1.0
+              assert b[1, 1] == 1.0
+              results['numpy'] = f"OK (version {np.__version__}, array math works)"
+          except Exception as e:
+              results['numpy'] = f"FAIL: {e}"
+
+          print("\n=== Smoke Test Results ===")
+          all_ok = True
+          for pkg, result in results.items():
+              status = "✅" if result.startswith("OK") else "❌"
+              print(f"  {status} {pkg}: {result}")
+              if not result.startswith("OK"):
+                  all_ok = False
+
+          if not all_ok:
+              sys.exit(1)
+          print("\nAll packages OK!")
+          PYEOF
+
+      - name: Run smoke tests
+        shell: bash
+        run: |
+          PYTHON_WASM=build/cpython-wasi/install/bin/python3.14
+          WASI_SYSROOT=build/wasi-sdk/share/wasi-sysroot
+          WHEELS_DIR=/tmp/wasi-wheels
+
+          wasmtime run \
+            --dir build/cpython-wasi/install::/ \
+            --dir "$WHEELS_DIR"::/wheels \
+            --dir /tmp::/tmp \
+            --env PYTHONHOME=/ \
+            --env PYTHONPATH=/wheels \
+            "$PYTHON_WASM" \
+            -- /tmp/test_wheels.py
