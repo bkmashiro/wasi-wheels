@@ -9,7 +9,7 @@ WASI_CC="${WASI_SDK_PATH}/bin/clang --sysroot=${WASI_SYSROOT}"
 ZLIB_PREFIX="${WASI_SYSROOT}"  # install zlib into sysroot so Pillow finds it
 
 PILLOW_VERSION="12.2.0"
-PILLOW_SRC="Pillow-${PILLOW_VERSION}"
+PILLOW_SRC="pillow-${PILLOW_VERSION}"
 
 if [ ! -e venv ]; then
   python3.14 -m venv venv
@@ -39,7 +39,7 @@ fi
 # ── Step 2: download Pillow source ────────────────────────────────────────────
 if [ ! -d "${PILLOW_SRC}" ]; then
   [ -f "${PILLOW_SRC}.tar.gz" ] || \
-    curl -fsSL "https://files.pythonhosted.org/packages/source/P/Pillow/${PILLOW_SRC}.tar.gz" \
+    curl -fsSL "https://files.pythonhosted.org/packages/8c/21/c2bcdd5906101a30244eaffc1b6e6ce71a31bd0742a01eb89e660ebfac2d/pillow-12.2.0.tar.gz" \
       -o "${PILLOW_SRC}.tar.gz"
   tar xzf "${PILLOW_SRC}.tar.gz"
 fi
@@ -105,4 +105,4 @@ python3 setup.py bdist_wheel \
   -C pillow-configuration=lcms=disable \
   -C pillow-configuration=raqm=disable
 
-wheel unpack --dest build dist/Pillow-*.whl
+wheel unpack --dest build dist/pillow-*.whl 2>/dev/null || wheel unpack --dest build dist/Pillow-*.whl
