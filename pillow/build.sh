@@ -15,7 +15,7 @@ if [ ! -e venv ]; then
   python3.14 -m venv venv
 fi
 . venv/bin/activate
-pip install wheel setuptools
+pip install wheel setuptools pybind11
 
 # ── Step 1: cross-compile zlib for wasm32-wasip1 ──────────────────────────────
 if [ ! -f "${ZLIB_PREFIX}/lib/libz.a" ]; then
