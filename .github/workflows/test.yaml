@@ -125,18 +125,43 @@ jobs:
           print("\nAll packages OK!")
           PYEOF
 
+      - name: Find Python WASM binary
+        shell: bash
+        run: |
+          echo "=== build/cpython-wasi structure ==="
+          find build/cpython-wasi -name "python*" -not -path "*/lib/*" | sort
+          echo ""
+          echo "=== install/bin ==="
+          ls -la build/cpython-wasi/install/bin/ 2>/dev/null || echo "(no install/bin)"
+          echo ""
+          echo "=== build root ==="
+          ls build/cpython-wasi/ | head -20
+
       - name: Run smoke tests
         shell: bash
         run: |
-          PYTHON_WASM=build/cpython-wasi/install/bin/python3.14
-          WASI_SYSROOT=build/wasi-sdk/share/wasi-sysroot
           WHEELS_DIR=/tmp/wasi-wheels
 
+          # Find the WASM Python binary (may be named python3.14 or python.wasm)
+          PYTHON_WASM=$(find build/cpython-wasi -name "python3.14" -o -name "python.wasm" \
+            | grep -v '/lib/' | head -1)
+
+          if [ -z "$PYTHON_WASM" ]; then
+            echo "ERROR: Could not find Python WASM binary"
+            find build/cpython-wasi -maxdepth 4 | sort
+            exit 1
+          fi
+          echo "Using Python WASM: $PYTHON_WASM"
+
+          # Determine the PYTHONHOME dir (parent of lib/python3.14)
+          PYTHON_HOME=$(find build/cpython-wasi -path "*/lib/python3.14" -type d | head -1 | sed 's|/lib/python3.14||')
+          echo "PYTHONHOME base: $PYTHON_HOME"
+
           wasmtime run \
-            --dir build/cpython-wasi/install::/ \
+            --dir "$PYTHON_HOME"::/cpython \
             --dir "$WHEELS_DIR"::/wheels \
             --dir /tmp::/tmp \
-            --env PYTHONHOME=/ \
+            --env PYTHONHOME=/cpython \
             --env PYTHONPATH=/wheels \
             "$PYTHON_WASM" \
             -- /tmp/test_wheels.py
