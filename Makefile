@@ -196,6 +196,14 @@ $(CPYTHON): $(WASI_SDK) $(CPYTHON_SRC) $(CPYTHON_HOST)/bin/python3
 		-lwasi-emulated-getpid \
 		-lwasi-emulated-process-clocks \
 		-ldl)
+	# Patch build-details.json to add extension_suffix if missing (required by maturin >= 1.7)
+	python3 -c "\
+import json; \
+p = '$(SYSCONFIG)/build-details.json'; \
+d = json.load(open(p)); \
+d.setdefault('extension_suffix', '.cpython-314-wasm32-wasi.so'); \
+json.dump(d, open(p, 'w'), indent=2); \
+print('build-details.json extension_suffix:', d['extension_suffix'])"
 
 .PHONY: clean
 clean:
