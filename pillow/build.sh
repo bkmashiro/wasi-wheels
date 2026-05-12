@@ -22,7 +22,8 @@ if [ ! -f "${ZLIB_PREFIX}/lib/libz.a" ]; then
   echo ">>> Building zlib for wasm32-wasip1"
   ZLIB_VERSION="1.3.1"
   [ -f "zlib-${ZLIB_VERSION}.tar.gz" ] || \
-    curl -fsSL "https://zlib.net/zlib-${ZLIB_VERSION}.tar.gz" -o "zlib-${ZLIB_VERSION}.tar.gz"
+    curl -fsSL "https://github.com/madler/zlib/releases/download/v${ZLIB_VERSION}/zlib-${ZLIB_VERSION}.tar.gz" \
+      -o "zlib-${ZLIB_VERSION}.tar.gz"
   tar xzf "zlib-${ZLIB_VERSION}.tar.gz"
   (
     cd "zlib-${ZLIB_VERSION}"
