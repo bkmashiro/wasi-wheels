@@ -73,14 +73,17 @@ jobs:
     needs: release
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Download release assets
         uses: actions/download-artifact@v4
         with:
             name: wasi-wheels
 
-      - name: Delete canary tag
+      - name: Delete canary tag (ignore if not exists)
         uses: dev-drprasad/delete-tag-and-release@v0.2.1
+        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
