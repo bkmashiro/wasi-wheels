@@ -7,7 +7,9 @@ SYSCONFIG := $(BUILD_DIR)/cpython-wasi/build/lib.wasi-wasm32-3.14
 OUTPUTS := \
 	$(BUILD_DIR)/numpy-wasi.tar.gz \
 	$(BUILD_DIR)/pydantic_core-wasi.tar.gz \
-	$(BUILD_DIR)/regex-wasi.tar.gz
+	$(BUILD_DIR)/regex-wasi.tar.gz \
+	$(BUILD_DIR)/tiktoken-wasi.tar.gz \
+	$(BUILD_DIR)/Pillow-wasi.tar.gz
 
 # Disabled (require WASI-incompatible deps or not needed for eval functions):
 #	$(BUILD_DIR)/pandas-wasi.tar.gz \
@@ -34,7 +36,7 @@ HOST_ARCH := $(shell uname -m | sed -e 's/aarch64/arm64/')
 
 PYO3_CROSS_LIB_DIR := $(SYSCONFIG)
 
-.PHONY: all prerequisites numpy pydantic regex
+.PHONY: all prerequisites numpy pydantic regex tiktoken pillow
 all: $(OUTPUTS)
 
 # Convenience phony aliases for CI steps (avoids absolute-path issues with $(abspath))
@@ -42,6 +44,8 @@ prerequisites: $(WASI_SDK) $(CPYTHON)
 numpy: $(BUILD_DIR)/numpy-wasi.tar.gz
 pydantic: $(BUILD_DIR)/pydantic_core-wasi.tar.gz
 regex: $(BUILD_DIR)/regex-wasi.tar.gz
+tiktoken: $(BUILD_DIR)/tiktoken-wasi.tar.gz
+pillow: $(BUILD_DIR)/Pillow-wasi.tar.gz
 
 $(OUTPUTS): $(WASI_SDK) $(CPYTHON)
 
@@ -92,6 +96,18 @@ $(BUILD_DIR)/regex-wasi.tar.gz: $(WASI_SDK) $(CPYTHON)
 	(cd regex && CROSS_PREFIX=$(CPYTHON) WASI_SDK_PATH=$(WASI_SDK) bash build.sh)
 	cp -a regex/src/build/lib.*/regex "$(@D)"
 	(cd "$(@D)" && tar czf regex-wasi.tar.gz regex)
+
+$(BUILD_DIR)/tiktoken-wasi.tar.gz: $(WASI_SDK) $(CPYTHON)
+	@mkdir -p "$(@D)"
+	(cd tiktoken && CROSS_PREFIX=$(CPYTHON) SYSCONFIG=$(SYSCONFIG) WASI_SDK_PATH=$(WASI_SDK) bash build.sh)
+	cp -a tiktoken/src/build/tiktoken "$(@D)"
+	(cd "$(@D)" && tar czf tiktoken-wasi.tar.gz tiktoken)
+
+$(BUILD_DIR)/Pillow-wasi.tar.gz: $(WASI_SDK) $(CPYTHON)
+	@mkdir -p "$(@D)"
+	(cd pillow && CROSS_PREFIX=$(CPYTHON) WASI_SDK_PATH=$(WASI_SDK) bash build.sh)
+	cp -a pillow/Pillow-*/build/PIL "$(@D)"
+	(cd "$(@D)" && tar czf Pillow-wasi.tar.gz PIL)
 
 $(BUILD_DIR)/sqlalchemy-wasi.tar.gz: $(WASI_SDK) $(CPYTHON)
 	@mkdir -p "$(@D)"

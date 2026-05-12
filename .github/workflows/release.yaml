@@ -43,7 +43,7 @@ jobs:
           path: build/cpython-wasi
           key: cpython-wasi-3.14.0-wasi-sdk-33-${{ runner.os }}-${{ runner.arch }}
 
-      - name: Cache Cargo registry and pydantic-core target
+      - name: Cache Cargo registry and Rust targets
         uses: actions/cache@v4
         with:
           path: |
@@ -51,9 +51,10 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             pydantic-core/src/target
-          key: cargo-pydantic-${{ runner.os }}-${{ hashFiles('pydantic-core/src/Cargo.lock') }}
+            tiktoken/src/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('pydantic-core/src/Cargo.lock', 'tiktoken/src/Cargo.lock') }}
           restore-keys: |
-            cargo-pydantic-${{ runner.os }}-
+            cargo-${{ runner.os }}-
 
       - name: Build prerequisites (wasi-sdk + CPython)
         shell: bash
@@ -70,6 +71,14 @@ jobs:
       - name: Build regex
         shell: bash
         run: make regex
+
+      - name: Build tiktoken
+        shell: bash
+        run: make tiktoken
+
+      - name: Build Pillow
+        shell: bash
+        run: make pillow
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -109,5 +118,5 @@ jobs:
           gh release create latest *.tar.gz \
             --repo ${{ github.repository }} \
             --title "Development Build" \
-            --notes "Latest WASI wheels built from \`main\` (numpy, pydantic_core, regex for CPython 3.14 / wasm32-wasip1)" \
+            --notes "Latest WASI wheels built from \`main\` (numpy, pydantic_core, regex, tiktoken, Pillow for CPython 3.14 / wasm32-wasip1)" \
             --prerelease
