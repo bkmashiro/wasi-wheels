@@ -110,7 +110,7 @@ export PYTHONPATH="${CROSS_PREFIX}/lib/python3.14"
 export _PYTHON_SYSCONFIGDATA_NAME=_sysconfigdata__wasi_wasm32-wasi
 
 DISABLE_FLAGS="--disable-jpeg --disable-tiff --disable-webp --disable-jpeg2000 \
-  --disable-imagequant --disable-xcb --disable-avif --disable-freetype \
+  --disable-imagequant --disable-xcb --disable-freetype \
   --disable-lcms --disable-raqm"
 
 python3 setup.py build_ext --plat-name wasm32-wasip1 $DISABLE_FLAGS
