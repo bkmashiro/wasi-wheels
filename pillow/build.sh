@@ -5,7 +5,6 @@
 set -eou pipefail
 
 WASI_SYSROOT="${WASI_SDK_PATH}/share/wasi-sysroot"
-WASI_CC="${WASI_SDK_PATH}/bin/clang --sysroot=${WASI_SYSROOT}"
 ZLIB_PREFIX="${WASI_SYSROOT}"  # install zlib into sysroot so Pillow finds it
 
 PILLOW_VERSION="12.2.0"
@@ -44,17 +43,59 @@ if [ ! -d "${PILLOW_SRC}" ]; then
   tar xzf "${PILLOW_SRC}.tar.gz"
 fi
 
-# ── Step 3: build Pillow (PNG/zlib only, all other formats disabled) ──────────
+# ── Step 3: clang wrapper that strips host include paths ──────────────────────
+# setuptools/distutils always appends -I/usr/include and -I/usr/local/include
+# from the host Python's sysconfig, regardless of DISABLE_PLATFORM_GUESSING.
+# These leak Linux-specific headers (features-time64.h → bits/wordsize.h) into
+# the WASI cross-compile.  The wrapper below filters them out before calling
+# the real clang, which is the only reliable way to block them.
+WRAPPER_DIR="$(mktemp -d)"
+REAL_CLANG="${WASI_SDK_PATH}/bin/clang"
+REAL_CLANGXX="${WASI_SDK_PATH}/bin/clang++"
+
+cat > "${WRAPPER_DIR}/clang" <<'WRAPPER'
+#!/bin/bash
+# Strip host system include dirs that break WASI cross-compilation
+args=()
+for arg in "$@"; do
+  case "$arg" in
+    -I/usr/include|-I/usr/include/*|-I/usr/local/include|-I/usr/local/include/*)
+      ;; # drop
+    *)
+      args+=("$arg") ;;
+  esac
+done
+exec "@REAL_CLANG@" "${args[@]}"
+WRAPPER
+sed -i "s|@REAL_CLANG@|${REAL_CLANG}|g" "${WRAPPER_DIR}/clang"
+chmod +x "${WRAPPER_DIR}/clang"
+
+cat > "${WRAPPER_DIR}/clang++" <<'WRAPPER'
+#!/bin/bash
+args=()
+for arg in "$@"; do
+  case "$arg" in
+    -I/usr/include|-I/usr/include/*|-I/usr/local/include|-I/usr/local/include/*)
+      ;; # drop
+    *)
+      args+=("$arg") ;;
+  esac
+done
+exec "@REAL_CLANGXX@" "${args[@]}"
+WRAPPER
+sed -i "s|@REAL_CLANGXX@|${REAL_CLANGXX}|g" "${WRAPPER_DIR}/clang++"
+chmod +x "${WRAPPER_DIR}/clang++"
+
+# ── Step 4: build Pillow (PNG/zlib only, all other formats disabled) ──────────
 cd "${PILLOW_SRC}"
 
-export CC="${WASI_SDK_PATH}/bin/clang"
-export CXX="${WASI_SDK_PATH}/bin/clang++"
+export CC="${WRAPPER_DIR}/clang"
+export CXX="${WRAPPER_DIR}/clang++"
 export AR="${WASI_SDK_PATH}/bin/llvm-ar"
 export RANLIB="${WASI_SDK_PATH}/bin/llvm-ranlib"
 export STRIP="${WASI_SDK_PATH}/bin/llvm-strip"
 
 export CFLAGS="--target=wasm32-wasip1 --sysroot=${WASI_SYSROOT} \
-  -nostdinc \
   -isystem ${WASI_SYSROOT}/include \
   -isystem ${WASI_SYSROOT}/include/wasm32-wasip1 \
   -I${CROSS_PREFIX}/include/python3.14 \
@@ -70,7 +111,7 @@ export LDFLAGS="--target=wasm32-wasip1 \
   -Wl,--shared \
   -Wl,--unresolved-symbols=import-dynamic"
 
-export LDSHARED="${WASI_SDK_PATH}/bin/clang"
+export LDSHARED="${WRAPPER_DIR}/clang"
 
 # Tell Pillow where to find zlib (points at the wasi sysroot)
 export ZLIB_ROOT="${WASI_SYSROOT}"
