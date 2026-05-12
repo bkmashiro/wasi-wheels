@@ -105,7 +105,6 @@ This fork required non-trivial changes to target wasi-sdk-33 and CPython 3.14. K
 - **`linker-plugin-lto`**: dropped due to LLVM version mismatch between Rust toolchain and wasm-ld
 - **Makefile**: `.PHONY` aliases for CI; order-only prerequisites for CPython to avoid cache invalidation
 
-Full write-up: [移植 WASI Wheels：wasi-sdk-33 + CPython 3.14 踩坑全记录](https://bkmashiro.github.io/posts/projects/wasi-wheels-migration.html)
 
 ## License
 
