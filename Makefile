@@ -159,7 +159,10 @@ $(CPYTHON_HOST)/bin/python3: $(CPYTHON_SRC)
 # implemented" for WASI, but the underlying linker support works fine.  We patch
 # the configure guard away so we can still build a PIC-compiled libpython3.14.so
 # that extension modules can dlopen-link against.
-$(CPYTHON): $(WASI_SDK) $(CPYTHON_SRC) $(CPYTHON_HOST)/bin/python3
+# Use order-only prerequisites (after |) so that if build/cpython-wasi/install
+# already exists (CI cache hit), make won't rebuild it just because the source
+# dirs were freshly downloaded and have newer timestamps.
+$(CPYTHON): | $(WASI_SDK) $(CPYTHON_SRC) $(CPYTHON_HOST)/bin/python3
 	@mkdir -p $(BUILD_DIR)/cpython-wasi
 	# Patch out the configure guard that blocks --enable-wasm-dynamic-linking on WASI
 	sed -i 's/as_fn_error \$$? "WASI dynamic linking is not implemented yet\." "\$$LINENO" 5/: ;; #  patched: WASI dynamic linking allowed/g' \
