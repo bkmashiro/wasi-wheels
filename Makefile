@@ -66,7 +66,7 @@ $(BUILD_DIR)/multidict-wasi.tar.gz: $(WASI_SDK) $(CPYTHON)
 $(BUILD_DIR)/numpy-wasi.tar.gz: $(WASI_SDK) $(CPYTHON)
 	@mkdir -p "$(@D)"
 	(cd numpy && CROSS_PREFIX=$(CPYTHON) WASI_SDK_PATH=$(WASI_SDK) bash build.sh)
-	cp -a numpy/src/build/lib.*/numpy "$(@D)"
+	cp -a numpy/build/numpy "$(@D)"
 	(cd "$(@D)" && tar czf numpy-wasi.tar.gz numpy)
 
 $(BUILD_DIR)/pandas-wasi.tar.gz: $(WASI_SDK) $(CPYTHON)
