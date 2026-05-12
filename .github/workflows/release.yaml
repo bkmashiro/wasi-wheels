@@ -98,22 +98,16 @@ jobs:
         with:
             name: wasi-wheels
 
-      - name: Delete canary tag (ignore if not exists)
-        uses: dev-drprasad/delete-tag-and-release@v0.2.1
-        continue-on-error: true
+      - name: Publish latest (canary) release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: canary
-
-      - uses: "marvinpinto/action-automatic-releases@latest"
-        with:
-          repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          automatic_release_tag: "latest"
-          prerelease: true
-          title: "Development Build"
-          files: |
-            *.tar.gz
-            *.txt
-            *.whl
-        if: github.ref == 'refs/heads/main'
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Delete existing latest release + tag if present (ignore errors)
+          gh release delete latest --repo ${{ github.repository }} --yes 2>/dev/null || true
+          git tag -d latest 2>/dev/null || true
+          # Create fresh latest release with all wheel tarballs
+          gh release create latest *.tar.gz \
+            --repo ${{ github.repository }} \
+            --title "Development Build" \
+            --notes "Latest WASI wheels built from \`main\` (numpy, pydantic_core, regex for CPython 3.14 / wasm32-wasip1)" \
+            --prerelease
