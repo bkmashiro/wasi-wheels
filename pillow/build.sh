@@ -6,7 +6,10 @@
 set -eou pipefail
 
 WASI_SYSROOT="${WASI_SDK_PATH}/share/wasi-sysroot"
-ZLIB_PREFIX="${WASI_SYSROOT}"  # install zlib into sysroot so Pillow finds it
+# Install PIC-compiled zlib into a local dir, NOT the wasi-sysroot.
+# The wasi-sdk is cached by CI; writing to the sysroot would persist a
+# non-PIC libz.a across runs.  A local dir is always rebuilt fresh.
+ZLIB_PREFIX="$(pwd)/zlib-pic-install"
 
 PILLOW_VERSION="11.1.0"
 PILLOW_SRC="pillow-${PILLOW_VERSION}"
@@ -28,7 +31,7 @@ if [ ! -f "${ZLIB_PREFIX}/lib/libz.a" ]; then
   (
     cd "zlib-${ZLIB_VERSION}"
     CC="${WASI_SDK_PATH}/bin/clang" \
-    CFLAGS="--target=wasm32-wasip1 --sysroot=${WASI_SYSROOT}" \
+    CFLAGS="--target=wasm32-wasip1 --sysroot=${WASI_SYSROOT} -fPIC" \
     ./configure --prefix="${ZLIB_PREFIX}" --static
     make -j"$(nproc)"
     make install
@@ -91,6 +94,7 @@ export CFLAGS="--target=wasm32-wasip1 --sysroot=${WASI_SYSROOT} \
 
 export LDFLAGS="--target=wasm32-wasip1 \
   --sysroot=${WASI_SYSROOT} \
+  -L${ZLIB_PREFIX}/lib \
   -L${WASI_SYSROOT}/lib/wasm32-wasip1 \
   -L${CROSS_PREFIX}/lib \
   ${CROSS_PREFIX}/lib/libpython3.14.so \
@@ -100,8 +104,8 @@ export LDFLAGS="--target=wasm32-wasip1 \
 
 export LDSHARED="${WRAPPER_DIR}/clang"
 
-# Tell Pillow where to find zlib (points at the wasi sysroot)
-export ZLIB_ROOT="${WASI_SYSROOT}"
+# Tell Pillow where to find the PIC-compiled zlib
+export ZLIB_ROOT="${ZLIB_PREFIX}"
 
 # Critical: prevent Pillow from searching /usr/include, /usr/lib, etc.
 export DISABLE_PLATFORM_GUESSING=1
