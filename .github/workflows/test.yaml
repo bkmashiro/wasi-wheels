@@ -135,6 +135,10 @@ jobs:
             echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
             cat /tmp/componentize_log.txt >> "$GITHUB_STEP_SUMMARY"
             echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+            # Publish error to ntfy.sh for unauthenticated access
+            curl -s -X POST "https://ntfy.sh/wasi-wheels-ci-f6dbcc6" \
+              -H "Content-Type: text/plain" \
+              --data-binary @/tmp/componentize_log.txt || true
             exit "$EXIT"
           fi
           echo "Component size: $(wc -c < /tmp/test.wasm) bytes"
