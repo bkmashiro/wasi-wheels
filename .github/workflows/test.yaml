@@ -41,10 +41,10 @@ jobs:
           gh release download latest --repo ${{ github.repository }} --pattern "*.tar.gz"
           echo "Downloaded tarballs:"
           ls *.tar.gz
-          # Only extract the three packages used by the test app into /tmp/wasi-wheels.
-          # Pillow and tiktoken have WASM symbols (e.g. __wasi_proc_exit) that
-          # componentize-py cannot resolve when it scans all .so files in -p dirs.
-          for pkg in numpy pydantic_core regex; do
+          # Extract numpy, pydantic_core, regex, and tiktoken into /tmp/wasi-wheels.
+          # Pillow is excluded: its .so files contain __wasi_proc_exit which
+          # componentize-py cannot resolve. tiktoken only uses random_get which is fine.
+          for pkg in numpy pydantic_core regex tiktoken; do
             tarball="${pkg}-wasi.tar.gz"
             [ -f "$tarball" ] || tarball="$(ls ${pkg}*.tar.gz 2>/dev/null | head -1)"
             tar xzf "$tarball" -C /tmp/wasi-wheels
@@ -94,6 +94,7 @@ jobs:
           import regex
           import pydantic_core
           import numpy as np
+          import tiktoken._tiktoken as _tiktoken_native
           from pydantic_core import core_schema, SchemaValidator
           import wit_world
           from wit_world import exports
@@ -123,8 +124,11 @@ jobs:
                   assert b[1, 1] == 42.0, "numpy matrix assignment failed"
                   results['numpy'] = f'v{np.__version__} array math OK'
 
+                  # tiktoken native module
+                  assert hasattr(_tiktoken_native, 'CoreBPE'), "CoreBPE not found in tiktoken"
+                  results['tiktoken'] = 'native module loaded OK'
+
                   print("\n=== WASI Wheels Integration Test ===")
-                  all_ok = True
                   for pkg, result in results.items():
                       print(f"  [OK] {pkg}: {result}")
                   print("\nAll packages OK!")
