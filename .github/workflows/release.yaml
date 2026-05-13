@@ -63,23 +63,63 @@ jobs:
         shell: bash
         run: make prerequisites
 
+      - name: Cache numpy wheel
+        id: cache-numpy
+        uses: actions/cache@v4
+        with:
+          path: build/numpy-wasi.tar.gz
+          key: numpy-wasi-cpython-3.14.0-wasi-33-${{ hashFiles('numpy/**') }}
+
       - name: Build numpy
+        if: steps.cache-numpy.outputs.cache-hit != 'true'
         shell: bash
         run: make numpy
 
+      - name: Cache pydantic_core wheel
+        id: cache-pydantic
+        uses: actions/cache@v4
+        with:
+          path: build/pydantic_core-wasi.tar.gz
+          key: pydantic-wasi-cpython-3.14.0-wasi-33-${{ hashFiles('pydantic-core/**') }}
+
       - name: Build pydantic_core
+        if: steps.cache-pydantic.outputs.cache-hit != 'true'
         shell: bash
         run: make pydantic
 
+      - name: Cache regex wheel
+        id: cache-regex
+        uses: actions/cache@v4
+        with:
+          path: build/regex-wasi.tar.gz
+          key: regex-wasi-cpython-3.14.0-wasi-33-${{ hashFiles('regex/**') }}
+
       - name: Build regex
+        if: steps.cache-regex.outputs.cache-hit != 'true'
         shell: bash
         run: make regex
 
+      - name: Cache tiktoken wheel
+        id: cache-tiktoken
+        uses: actions/cache@v4
+        with:
+          path: build/tiktoken-wasi.tar.gz
+          key: tiktoken-wasi-cpython-3.14.0-wasi-33-${{ hashFiles('tiktoken/**') }}
+
       - name: Build tiktoken
+        if: steps.cache-tiktoken.outputs.cache-hit != 'true'
         shell: bash
         run: make tiktoken
 
+      - name: Cache Pillow wheel
+        id: cache-pillow
+        uses: actions/cache@v4
+        with:
+          path: build/Pillow-wasi.tar.gz
+          key: pillow-wasi-cpython-3.14.0-wasi-33-${{ hashFiles('pillow/**') }}
+
       - name: Build Pillow
+        if: steps.cache-pillow.outputs.cache-hit != 'true'
         shell: bash
         run: make pillow
 
