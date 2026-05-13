@@ -232,6 +232,11 @@ if [ ! -f "${SCIPY_SRC}/.patched" ]; then
   sed -i 's/void BLAS_FUNC/int BLAS_FUNC/g' scipy/interpolate/src/__fitpack.h 2>/dev/null || true
   find scipy/sparse/linalg/_dsolve/SuperLU/SRC -name "*.c" -o -name "*.h" \
     | xargs -r sed -i 's/extern void/extern int/g;s/PUBLIC void/PUBLIC int/g;s/^void/int/g' 2>/dev/null || true
+  # Also fix indented/inline forward declarations inside functions (e.g. cgstrs.c:116
+  # has '    void cprint_soln(...)' which ^void misses, conflicting with the definition
+  # at the top level that ^void DID change to int).
+  find scipy/sparse/linalg/_dsolve/SuperLU/SRC -name "*.c" -o -name "*.h" \
+    | xargs -r sed -i 's/\bvoid \([cdsz][A-Za-z_]*\)(/int \1(/g' 2>/dev/null || true
   find scipy/sparse/linalg/_dsolve -maxdepth 1 -name "*.c" -o -name "*.h" \
     | xargs -r sed -i 's/^void/int/g' 2>/dev/null || true
   sed -i 's/TYPE_GENERIC_FUNC(\(.*\), void)/TYPE_GENERIC_FUNC(\1, int)/g' \
