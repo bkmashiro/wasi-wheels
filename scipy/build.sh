@@ -527,6 +527,7 @@ export CXXFLAGS="${WASM_TARGET} -fPIC \
 
 export LDFLAGS="${WASM_TARGET} \
   --sysroot=${WASI_SYSROOT} \
+  -L${WASI_SYSROOT}/lib/wasm32-wasip1/pic \
   -L${WASI_SYSROOT}/lib/wasm32-wasip1 \
   -L${CROSS_PREFIX}/lib \
   -L${BLAS_BUILD} \
