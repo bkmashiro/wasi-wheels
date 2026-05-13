@@ -41,10 +41,10 @@ jobs:
           gh release download latest --repo ${{ github.repository }} --pattern "*.tar.gz"
           echo "Downloaded tarballs:"
           ls *.tar.gz
-          # Extract all packages into /tmp/wasi-wheels.
-          # We declare wasi:cli/exit@0.2.0 in the WIT world to resolve __wasi_proc_exit
-          # used by Pillow's .so files (testing whether this unblocks Pillow in componentize-py).
-          for pkg in numpy pydantic_core regex tiktoken Pillow; do
+          # Extract numpy, pydantic_core, regex, tiktoken into /tmp/wasi-wheels.
+          # Pillow is excluded: its .so files reference __wasi_proc_exit which
+          # componentize-py 0.23.0 cannot resolve regardless of WIT world declarations.
+          for pkg in numpy pydantic_core regex tiktoken; do
             tarball="${pkg}-wasi.tar.gz"
             [ -f "$tarball" ] || tarball="$(ls ${pkg}*.tar.gz 2>/dev/null | head -1)"
             tar xzf "$tarball" -C /tmp/wasi-wheels
@@ -82,11 +82,9 @@ jobs:
         run: |
           mkdir -p /tmp/wit-test/wit
 
-          # WIT world — declare wasi:cli/exit to resolve __wasi_proc_exit from Pillow .so files
           cat > /tmp/wit-test/wit/world.wit << 'EOF'
           world wasi-wheels-test {
             include wasi:cli/command@0.2.0;
-            import wasi:cli/exit@0.2.0;
           }
           EOF
 
@@ -98,7 +96,6 @@ jobs:
           import numpy as np
           import tiktoken._tiktoken as _tiktoken_native
           import tiktoken
-          from PIL import Image, __version__ as pil_ver
           from pydantic_core import core_schema, SchemaValidator
           import wit_world
           from wit_world import exports
@@ -133,11 +130,6 @@ jobs:
                   # does not work inside the componentize-py virtual filesystem.
                   assert hasattr(_tiktoken_native, 'CoreBPE'), "CoreBPE not found in tiktoken native module"
                   results['tiktoken'] = f'v{tiktoken.__version__} native module (CoreBPE) OK'
-
-                  # Pillow — testing wasi:cli/exit@0.2.0 import in WIT world resolves __wasi_proc_exit
-                  img = Image.new('RGB', (8, 8), color=(255, 0, 0))
-                  assert img.size == (8, 8), f"unexpected size {img.size}"
-                  results['Pillow'] = f'v{pil_ver} Image.new OK'
 
                   print("\n=== WASI Wheels Integration Test ===")
                   for pkg, result in results.items():
