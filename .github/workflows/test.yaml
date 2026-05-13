@@ -55,8 +55,9 @@ jobs:
       - name: Install pure-Python runtime deps
         run: |
           # typing_extensions is imported by pydantic_core/__init__.py.
-          # It is pure Python and safe to use from the host install.
-          pip install --target /tmp/wasi-wheels typing_extensions
+          # tiktoken_ext is the namespace package with BPE vocab data — pure Python.
+          # Both are safe to install from host Python since they contain no native code.
+          pip install --target /tmp/wasi-wheels typing_extensions tiktoken_ext
           echo "=== /tmp/wasi-wheels top-level contents ==="
           ls /tmp/wasi-wheels/
           echo "=== typing_extensions verification (host Python) ==="
@@ -95,6 +96,7 @@ jobs:
           import pydantic_core
           import numpy as np
           import tiktoken._tiktoken as _tiktoken_native
+          import tiktoken
           from pydantic_core import core_schema, SchemaValidator
           import wit_world
           from wit_world import exports
@@ -124,9 +126,11 @@ jobs:
                   assert b[1, 1] == 42.0, "numpy matrix assignment failed"
                   results['numpy'] = f'v{np.__version__} array math OK'
 
-                  # tiktoken native module
+                  # tiktoken
                   assert hasattr(_tiktoken_native, 'CoreBPE'), "CoreBPE not found in tiktoken"
-                  results['tiktoken'] = 'native module loaded OK'
+                  enc_names = tiktoken.list_encoding_names()
+                  assert len(enc_names) > 0, "no encodings found"
+                  results['tiktoken'] = f'v{tiktoken.__version__} native OK, encodings: {enc_names}'
 
                   print("\n=== WASI Wheels Integration Test ===")
                   for pkg, result in results.items():
