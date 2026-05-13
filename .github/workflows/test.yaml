@@ -41,10 +41,10 @@ jobs:
           gh release download latest --repo ${{ github.repository }} --pattern "*.tar.gz"
           echo "Downloaded tarballs:"
           ls *.tar.gz
-          # Extract numpy, pydantic_core, regex, tiktoken into /tmp/wasi-wheels.
-          # Pillow is excluded: its .so files reference __wasi_proc_exit which
-          # componentize-py 0.23.0 cannot resolve regardless of WIT world declarations.
-          for pkg in numpy pydantic_core regex tiktoken; do
+          # Extract all packages including Pillow.
+          # Pillow's __wasi_proc_exit is now stubbed at build time (-> __builtin_trap),
+          # so componentize-py should no longer see it as an unresolved import.
+          for pkg in numpy pydantic_core regex tiktoken Pillow; do
             tarball="${pkg}-wasi.tar.gz"
             [ -f "$tarball" ] || tarball="$(ls ${pkg}*.tar.gz 2>/dev/null | head -1)"
             tar xzf "$tarball" -C /tmp/wasi-wheels
@@ -97,6 +97,8 @@ jobs:
           import tiktoken._tiktoken as _tiktoken_native
           import tiktoken
           from pydantic_core import core_schema, SchemaValidator
+          from PIL import Image
+          import io
           import wit_world
           from wit_world import exports
 
@@ -130,6 +132,15 @@ jobs:
                   # does not work inside the componentize-py virtual filesystem.
                   assert hasattr(_tiktoken_native, 'CoreBPE'), "CoreBPE not found in tiktoken native module"
                   results['tiktoken'] = f'v{tiktoken.__version__} native module (CoreBPE) OK'
+
+                  # Pillow — create a small image and verify pixel access
+                  img = Image.new('RGB', (4, 4), color=(255, 0, 0))
+                  px = img.getpixel((0, 0))
+                  assert px == (255, 0, 0), f"Pillow pixel mismatch: {px}"
+                  buf = io.BytesIO()
+                  img.save(buf, format='PNG')
+                  assert buf.tell() > 0, "Pillow PNG encode produced empty output"
+                  results['Pillow'] = f'v{Image.__version__} Image.new + PNG encode OK'
 
                   print("\n=== WASI Wheels Integration Test ===")
                   for pkg, result in results.items():
