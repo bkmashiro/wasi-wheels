@@ -119,11 +119,9 @@ sed -i "s|${WASI_SDK_PATH}/bin/clang\b|${WASI_SDK_PATH}/bin/clang++|g" "${WRAPPE
 # to transpile .f/.f90 files to C, then cross-compiles with wasi-sdk clang.
 MOCK_BIN="$(mktemp -d)"
 
-# Fetch the real f2c.h (complete, with cilist and all I/O structs)
-F2C_H="${MOCK_BIN}/f2c.h"
-curl -fsSL "https://raw.githubusercontent.com/hoodmane/f2c/master/src/f2c.h" \
-  -o "${F2C_H}"
-echo ">>> f2c.h fetched ($(wc -l < "${F2C_H}") lines)"
+# f2c.h is already in the cloned f2c repo — no download needed
+F2C_H="${SCRIPT_DIR}/f2c/src/f2c.h"
+echo ">>> Using f2c.h from ${F2C_H} ($(wc -l < "${F2C_H}") lines)"
 
 REAL_CLANG="${WASI_SDK_PATH}/bin/clang"
 F2C_BIN="${F2C}"
