@@ -502,6 +502,7 @@ export CFLAGS="${WASM_TARGET} -fPIC \
   -isystem ${WASI_SYSROOT}/include \
   -D__EMSCRIPTEN__=1 \
   -DNPY_NO_SIGNAL \
+  -D_WASI_EMULATED_SIGNAL \
   -DUNDERSCORE_G77 \
   -Wno-return-type \
   -fvisibility=default"
