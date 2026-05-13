@@ -156,6 +156,18 @@ Libs: -L${BLAS_BUILD} -lblas -lf2c
 Cflags: -I${F2C_SRC}
 EOF
 
+# cblas: C interface to BLAS — required when blas_name='blas'.
+# Our reference BLAS already contains the Fortran BLAS symbols; this stub
+# satisfies meson's pkgconfig lookup without needing a separate cblas library.
+cat > "${PKG_CONFIG_DIR}/cblas.pc" << EOF
+Name: cblas
+Description: C interface to reference BLAS (f2c + wasm32-wasip1)
+Version: ${LAPACK_VERSION}
+Requires: blas
+Libs: -L${BLAS_BUILD} -lblas -lf2c
+Cflags: -I${F2C_SRC}
+EOF
+
 cat > "${PKG_CONFIG_DIR}/lapack.pc" << EOF
 Name: lapack
 Description: Reference LAPACK (f2c + wasm32-wasip1)
