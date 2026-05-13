@@ -108,6 +108,8 @@ c = 'clang'
 cpp = 'clang++'
 ar = 'llvm-ar'
 strip = 'llvm-strip'
+# Point meson to the WASI cross-Python for extension suffix / sysconfig queries
+python3 = '${CROSS_PREFIX}/bin/python3.14'
 
 [properties]
 sizeof_short = 2
@@ -121,16 +123,21 @@ sizeof_size_t = 4
 sizeof_void_p = 4
 
 [host_machine]
-system = 'wasi'
+# meson doesn't know 'wasi' — use 'emscripten' which is the closest known
+# WASM target; scipy uses #ifdef __EMSCRIPTEN__ guards we already handle
+system = 'emscripten'
 cpu_family = 'wasm32'
 cpu = 'wasm32'
 endian = 'little'
 EOF
 
-# Native file: tells meson which Python to use on the build machine
+HOST_CYTHON="$(which cython)"
+
+# Native file: tells meson which tools to use on the build (host Linux) machine
 cat > "${SCRIPT_DIR}/native.ini" << EOF
 [binaries]
 python3 = '${HOST_PYTHON}'
+cython = '${HOST_CYTHON}'
 EOF
 
 # ── Cross-compile env vars ────────────────────────────────────────────────────

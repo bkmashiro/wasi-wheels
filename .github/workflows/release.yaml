@@ -135,6 +135,16 @@ jobs:
         shell: bash
         run: make scipy
 
+      - name: Dump scipy build logs (on failure)
+        if: failure()
+        run: |
+          echo "=== meson setup log ==="
+          cat /tmp/scipy_meson_setup.log 2>/dev/null || echo "(not found)"
+          echo "=== meson-log ==="
+          cat scipy/build/_meson/meson-logs/meson-log.txt 2>/dev/null || echo "(not found)"
+          echo "=== ninja log ==="
+          cat /tmp/scipy_ninja.log 2>/dev/null || echo "(not found)"
+
       - name: Validate Pillow and tiktoken WASM modules
         run: |
           # wasmtime dlopen is not supported for standalone run — instead validate
