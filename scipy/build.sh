@@ -35,6 +35,107 @@ if [ ! -f f2c/src/f2c ]; then
   (cd f2c/src && cp makefile.u makefile && sed -i "s/gram.c:/gram.c1:/" makefile && make -j"$(nproc)")
 fi
 export F2C="${SCRIPT_DIR}/f2c/src/f2c"
+F2C_H="${SCRIPT_DIR}/f2c/src/f2c.h"
+F2C_SRC="${SCRIPT_DIR}/f2c/src"
+
+# ── Build libf2c.a (f2c runtime, WASM) ───────────────────────────────────────
+# f2c-generated C code calls runtime helpers: pow_di, d_sign, s_cat, etc.
+# These live in hoodmane/f2c's libF77/ directory.
+BLAS_BUILD="${SCRIPT_DIR}/build/blas_lapack"
+PKG_CONFIG_DIR="${SCRIPT_DIR}/build/pkgconfig"
+mkdir -p "${BLAS_BUILD}" "${PKG_CONFIG_DIR}"
+
+if [ ! -f "${BLAS_BUILD}/libf2c.a" ]; then
+  echo ">>> Building libf2c.a (f2c runtime) for WASM"
+  mkdir -p "${BLAS_BUILD}/f2c_obj"
+  for csrc in "${F2C_SRC}/libF77"/*.c; do
+    [ -f "$csrc" ] || continue
+    base="$(basename "${csrc%.*}")"
+    "${WASI_SDK_PATH}/bin/clang" \
+      --target=wasm32-wasip1 --sysroot="${WASI_SYSROOT}" \
+      -fPIC -O2 \
+      -I"${F2C_SRC}" \
+      -Wno-implicit-function-declaration -Wno-return-type \
+      -c "$csrc" -o "${BLAS_BUILD}/f2c_obj/${base}.o" 2>/dev/null || true
+  done
+  "${WASI_SDK_PATH}/bin/llvm-ar" rcs "${BLAS_BUILD}/libf2c.a" "${BLAS_BUILD}/f2c_obj/"*.o
+  echo ">>> libf2c.a: $(ls -lh "${BLAS_BUILD}/libf2c.a" 2>/dev/null || echo 'MISSING')"
+fi
+
+# ── Build reference BLAS + LAPACK for WASM ───────────────────────────────────
+# scipy 1.17 requires external BLAS/LAPACK (removed lapack_lite fallback).
+# We compile the netlib reference implementations using f2c + wasi-sdk clang.
+LAPACK_VERSION="3.12.0"
+LAPACK_SRC="${BLAS_BUILD}/lapack-${LAPACK_VERSION}"
+
+if [ ! -d "${LAPACK_SRC}" ]; then
+  echo ">>> Downloading LAPACK ${LAPACK_VERSION}"
+  curl -fsSL "https://github.com/Reference-LAPACK/lapack/archive/refs/tags/v${LAPACK_VERSION}.tar.gz" \
+    | tar xz -C "${BLAS_BUILD}"
+fi
+
+# Helper: compile a .f file to WASM .o via f2c
+f2c_compile() {
+  local src="$1" obj_dir="$2"
+  local base; base="$(basename "${src%.*}")"
+  local tmpdir; tmpdir="$(mktemp -d)"
+  cp "$src" "${tmpdir}/${base}.f"
+  (cd "${tmpdir}" && "${F2C}" -A -a "${base}.f" 2>/dev/null) || \
+  (cd "${tmpdir}" && "${F2C}" "${base}.f" 2>/dev/null) || return 1
+  [ -f "${tmpdir}/${base}.c" ] || return 1
+  "${WASI_SDK_PATH}/bin/clang" \
+    --target=wasm32-wasip1 --sysroot="${WASI_SYSROOT}" \
+    -fPIC -O2 \
+    -I"${F2C_SRC}" \
+    -Wno-implicit-function-declaration -Wno-return-type \
+    -c "${tmpdir}/${base}.c" -o "${obj_dir}/${base}.o" 2>/dev/null
+  local rc=$?
+  rm -rf "${tmpdir}"
+  return $rc
+}
+
+if [ ! -f "${BLAS_BUILD}/libblas.a" ]; then
+  echo ">>> Building reference BLAS for WASM ($(ls "${LAPACK_SRC}/BLAS/SRC/"*.f 2>/dev/null | wc -l) files)"
+  mkdir -p "${BLAS_BUILD}/blas_obj"
+  BLAS_FAIL=0
+  for f in "${LAPACK_SRC}/BLAS/SRC/"*.f; do
+    [ -f "$f" ] || continue
+    f2c_compile "$f" "${BLAS_BUILD}/blas_obj" || BLAS_FAIL=$((BLAS_FAIL+1))
+  done
+  "${WASI_SDK_PATH}/bin/llvm-ar" rcs "${BLAS_BUILD}/libblas.a" "${BLAS_BUILD}/blas_obj/"*.o 2>/dev/null
+  echo ">>> libblas.a built (${BLAS_FAIL} failed): $(ls -lh "${BLAS_BUILD}/libblas.a" 2>/dev/null)"
+fi
+
+if [ ! -f "${BLAS_BUILD}/liblapack.a" ]; then
+  echo ">>> Building reference LAPACK for WASM (F77 .f files only — skipping .f90)"
+  mkdir -p "${BLAS_BUILD}/lapack_obj"
+  LAPACK_FAIL=0
+  # Only process .f (Fortran 77); skip .f90/.F90 which f2c cannot handle
+  for f in "${LAPACK_SRC}/SRC/"*.f; do
+    [ -f "$f" ] || continue
+    f2c_compile "$f" "${BLAS_BUILD}/lapack_obj" || LAPACK_FAIL=$((LAPACK_FAIL+1))
+  done
+  "${WASI_SDK_PATH}/bin/llvm-ar" rcs "${BLAS_BUILD}/liblapack.a" "${BLAS_BUILD}/lapack_obj/"*.o 2>/dev/null
+  echo ">>> liblapack.a built (${LAPACK_FAIL} failed): $(ls -lh "${BLAS_BUILD}/liblapack.a" 2>/dev/null)"
+fi
+
+# ── pkg-config files for WASM BLAS/LAPACK ────────────────────────────────────
+cat > "${PKG_CONFIG_DIR}/blas.pc" << EOF
+Name: blas
+Description: Reference BLAS (f2c + wasm32-wasip1)
+Version: ${LAPACK_VERSION}
+Libs: -L${BLAS_BUILD} -lblas -lf2c
+Cflags: -I${F2C_SRC}
+EOF
+
+cat > "${PKG_CONFIG_DIR}/lapack.pc" << EOF
+Name: lapack
+Description: Reference LAPACK (f2c + wasm32-wasip1)
+Version: ${LAPACK_VERSION}
+Requires: blas
+Libs: -L${BLAS_BUILD} -llapack -lblas -lf2c
+Cflags: -I${F2C_SRC}
+EOF
 
 # ── Download scipy source ─────────────────────────────────────────────────────
 if [ ! -d "${SCIPY_SRC}" ]; then
@@ -223,11 +324,18 @@ echo ">>> pybind11 pkgconfig dir: ${PYBIND11_PC_DIR}"
 #   - blas/lapack/etc return nothing → graceful skip (required: false in meson)
 # Without a pkg-config in the cross-file [binaries], meson errors out
 # immediately ("Pkg-config for machine host machine not found").
+# pkg-config wrapper for the WASM host machine.
+# Searches our PKG_CONFIG_DIR (blas.pc, lapack.pc) + pybind11's dir.
+# This satisfies scipy's BLAS/LAPACK detection and pybind11 lookup.
 HOST_PKG_CONFIG="$(which pkg-config 2>/dev/null || echo pkg-config)"
+# Copy pybind11.pc into our combined pkgconfig dir so we only need one LIBDIR
+if [ -n "${PYBIND11_PC_DIR}" ] && [ -d "${PYBIND11_PC_DIR}" ]; then
+  cp "${PYBIND11_PC_DIR}"/*.pc "${PKG_CONFIG_DIR}/" 2>/dev/null || true
+fi
 cat > "${MOCK_BIN}/wasi-pkg-config" << PKGEOF
 #!/bin/bash
-# pkg-config for the WASM host machine — searches only pybind11's pkgconfig dir.
-exec env PKG_CONFIG_LIBDIR="${PYBIND11_PC_DIR}" "${HOST_PKG_CONFIG}" "\$@"
+# pkg-config for the WASM host machine — searches our combined pkgconfig dir.
+exec env PKG_CONFIG_LIBDIR="${PKG_CONFIG_DIR}" "${HOST_PKG_CONFIG}" "\$@"
 PKGEOF
 chmod +x "${MOCK_BIN}/wasi-pkg-config"
 
@@ -241,8 +349,7 @@ fortran = '${MOCK_BIN}/gfortran'
 # Use HOST Python for meson's sysconfig introspection (WASI binary can't be
 # exec'd on Linux). Compilation still targets wasm32-wasip1 via CFLAGS/CC.
 python3 = '${HOST_PYTHON}'
-# pkg-config wrapper that only exposes pybind11; everything else returns empty
-# (blas=none, lapack=none → dependency('none') fails gracefully with required:false)
+# pkg-config wrapper that serves blas.pc, lapack.pc, and pybind11.pc
 pkg-config = '${MOCK_BIN}/wasi-pkg-config'
 
 [properties]
@@ -255,7 +362,7 @@ sizeof_double = 8
 sizeof_long_double = 8
 sizeof_size_t = 4
 sizeof_void_p = 4
-pkg_config_libdir = ['${PYBIND11_PC_DIR}']
+pkg_config_libdir = ['${PKG_CONFIG_DIR}']
 
 [host_machine]
 # Declare as linux/wasm32: meson doesn't know 'wasi', and 'emscripten' requires
@@ -306,6 +413,7 @@ export LDFLAGS="${WASM_TARGET} \
   --sysroot=${WASI_SYSROOT} \
   -L${WASI_SYSROOT}/lib/wasm32-wasip1 \
   -L${CROSS_PREFIX}/lib \
+  -L${BLAS_BUILD} \
   -shared \
   ${PY_LIB} \
   -Wl,--experimental-pic \
@@ -336,8 +444,8 @@ meson setup "${BUILD_DIR}" \
   --cross-file="${SCRIPT_DIR}/wasi-cross.ini" \
   --native-file="${SCRIPT_DIR}/native.ini" \
   --prefix="${INSTALL_DIR}" \
-  -Dblas=auto \
-  -Dlapack=auto \
+  -Dblas=blas \
+  -Dlapack=lapack \
   -Duse-pythran=false \
   -Dpython.install_env=prefix \
   --wipe 2>&1 | tee /tmp/scipy_meson_setup.log
