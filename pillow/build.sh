@@ -42,7 +42,7 @@ fi
 # ── Step 2: cross-compile libjpeg-turbo ──────────────────────────────────────
 if [ ! -f "${DEPS_PREFIX}/lib/libjpeg.a" ]; then
   echo ">>> Building libjpeg-turbo for wasm32-wasip1"
-  JPEG_VERSION="3.1.0"
+  JPEG_VERSION="2.1.5.1"
   [ -f "libjpeg-turbo-${JPEG_VERSION}.tar.gz" ] || \
     curl -fsSL "https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/${JPEG_VERSION}/libjpeg-turbo-${JPEG_VERSION}.tar.gz" \
       -o "libjpeg-turbo-${JPEG_VERSION}.tar.gz"
