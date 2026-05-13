@@ -108,8 +108,9 @@ c = 'clang'
 cpp = 'clang++'
 ar = 'llvm-ar'
 strip = 'llvm-strip'
-# Point meson to the WASI cross-Python for extension suffix / sysconfig queries
-python3 = '${CROSS_PREFIX}/bin/python3.14'
+# Use HOST Python for meson's sysconfig introspection (WASI binary can't be
+# exec'd on Linux). Compilation still targets wasm32-wasip1 via CFLAGS/CC.
+python3 = '${HOST_PYTHON}'
 
 [properties]
 sizeof_short = 2
@@ -123,9 +124,10 @@ sizeof_size_t = 4
 sizeof_void_p = 4
 
 [host_machine]
-# meson doesn't know 'wasi' — use 'emscripten' which is the closest known
-# WASM target; scipy uses #ifdef __EMSCRIPTEN__ guards we already handle
-system = 'emscripten'
+# Declare as linux/wasm32: meson doesn't know 'wasi', and 'emscripten' requires
+# emcc. With 'linux' meson can run the host Python for sysconfig queries while
+# we supply the actual WASI clang via CC/CXX environment variables.
+system = 'linux'
 cpu_family = 'wasm32'
 cpu = 'wasm32'
 endian = 'little'
