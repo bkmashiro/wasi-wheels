@@ -1,7 +1,7 @@
 #!/bin/bash
-# Build Pillow 11.x for wasm32-wasip1 (PNG-only, zlib-only build)
-# Using 11.x instead of 12.x to avoid the pil_imaging_mode static library
-# introduced in 12.0 whose build_clib step is skipped in cross-compile contexts.
+# Build Pillow 10.x for wasm32-wasip1 (PNG-only, zlib-only build)
+# 10.4.0: last series with traditional setup.py + --disable-X flags.
+# 11.x removed these CLI flags; 12.x added pil_imaging_mode (build_clib issues).
 
 set -eou pipefail
 
@@ -11,7 +11,7 @@ WASI_SYSROOT="${WASI_SDK_PATH}/share/wasi-sysroot"
 # non-PIC libz.a across runs.  A local dir is always rebuilt fresh.
 ZLIB_PREFIX="$(pwd)/zlib-pic-install"
 
-PILLOW_VERSION="11.1.0"
+PILLOW_VERSION="10.4.0"
 PILLOW_SRC="pillow-${PILLOW_VERSION}"
 
 if [ ! -e venv ]; then
@@ -42,7 +42,7 @@ fi
 # ── Step 2: download Pillow source ────────────────────────────────────────────
 if [ ! -d "${PILLOW_SRC}" ]; then
   [ -f "${PILLOW_SRC}.tar.gz" ] || \
-    curl -fsSL "https://files.pythonhosted.org/packages/f3/af/c097e544e7bd278333db77933e535098c259609c4eb3b85381109602fb5b/pillow-11.1.0.tar.gz" \
+    curl -fsSL "https://files.pythonhosted.org/packages/cd/74/ad3d526f3bf7b6d3f408b73fde271ec69dfac8b81341a318ce825f2b3812/pillow-10.4.0.tar.gz" \
       -o "${PILLOW_SRC}.tar.gz"
   tar xzf "${PILLOW_SRC}.tar.gz"
 fi
