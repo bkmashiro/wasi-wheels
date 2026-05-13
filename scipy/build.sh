@@ -23,6 +23,7 @@ pip install \
   ninja \
   "cython==3.0.12" \
   "numpy>=2.0" \
+  "pybind11>=2.10" \
   pyproject_metadata \
   setuptools \
   wheel
@@ -210,6 +211,12 @@ export PATH="${WRAPPER_DIR}:${WASI_SDK_PATH}/bin:${MOCK_BIN}:${PATH}"
 
 # ── Meson cross-file ──────────────────────────────────────────────────────────
 HOST_PYTHON="$(which python3.14)"
+HOST_CYTHON="$(which cython)"
+# pybind11 pkgconfig dir (from pip-installed pybind11) — must be computed
+# BEFORE the wasi-cross.ini heredoc that references ${PYBIND11_PC_DIR}.
+PYBIND11_PC_DIR="$(python3.14 -c "import pybind11; import os; print(os.path.join(os.path.dirname(pybind11.__file__), 'share', 'pkgconfig'))" 2>/dev/null || echo "")"
+echo ">>> pybind11 pkgconfig dir: ${PYBIND11_PC_DIR}"
+
 cat > "${SCRIPT_DIR}/wasi-cross.ini" << EOF
 [binaries]
 c = '${WRAPPER_DIR}/clang'
@@ -231,6 +238,8 @@ sizeof_double = 8
 sizeof_long_double = 8
 sizeof_size_t = 4
 sizeof_void_p = 4
+# Point meson's host-machine pkg-config at pybind11's pkgconfig directory
+pkg_config_libdir = ['${PYBIND11_PC_DIR}']
 
 [host_machine]
 # Declare as linux/wasm32: meson doesn't know 'wasi', and 'emscripten' requires
@@ -242,13 +251,12 @@ cpu = 'wasm32'
 endian = 'little'
 EOF
 
-HOST_CYTHON="$(which cython)"
-
 # Native file: tells meson which tools to use on the build (host Linux) machine
 cat > "${SCRIPT_DIR}/native.ini" << EOF
 [binaries]
 python3 = '${HOST_PYTHON}'
 cython = '${HOST_CYTHON}'
+pkg-config = 'pkg-config'
 EOF
 
 # ── Cross-compile env vars ────────────────────────────────────────────────────
