@@ -238,8 +238,17 @@ if [ ! -f "${SCIPY_SRC}/.patched" ]; then
   # structurally identical but a different C type, causing a redefinition error.
   # Fix: change slu_scomplex.h to just 'typedef complex singlecomplex;' so
   # both names refer to exactly the same f2c type.
+  # slu_scomplex.h defines 'singlecomplex' as struct { float r, i; } which
+  # conflicts with f2c.h's 'complex' (same layout, different C type).
+  # Fix: ensure f2c.h is included first in slu_scomplex.h (so 'complex' is
+  # defined), then replace the anonymous struct typedef with 'typedef complex
+  # singlecomplex;' — making both names the same type.
   SUPERLU_SC="scipy/sparse/linalg/_dsolve/SuperLU/SRC/slu_scomplex.h"
   if [ -f "${SUPERLU_SC}" ]; then
+    # Inject #include "f2c.h" right after the include guard opening
+    sed -i 's|#define __SUPERLU_SCOMPLEX|#define __SUPERLU_SCOMPLEX\n#include "f2c.h"|' \
+      "${SUPERLU_SC}" 2>/dev/null || true
+    # Replace the struct-based typedef with an alias for f2c's complex type
     sed -i 's|typedef struct { float r, i; } singlecomplex;|typedef complex singlecomplex;|' \
       "${SUPERLU_SC}" 2>/dev/null || true
   fi
