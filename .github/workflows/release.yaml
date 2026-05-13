@@ -92,11 +92,25 @@ jobs:
           sudo cp /tmp/wasmtime-v44.0.1-x86_64-linux/wasmtime /usr/local/bin/wasmtime
           wasmtime --version
 
-          # CPython WASM install dir (absolute — same path that python3.14 binary expects)
+          # Find the Python WASM binary — CPython WASI builds place it at
+          # build/cpython-wasi/python.wasm (not install/bin/python3.14)
+          echo "=== Locating Python WASM binary ==="
+          find build/cpython-wasi -name "python*.wasm" -o -name "python3.14" 2>/dev/null | head -10
+          PYTHON_WASM=$(find build/cpython-wasi -name "python.wasm" 2>/dev/null | head -1)
+          if [ -z "$PYTHON_WASM" ]; then
+            PYTHON_WASM=$(find build/cpython-wasi -name "python3.14" -type f 2>/dev/null | head -1)
+          fi
+          echo "Found Python WASM: $PYTHON_WASM"
+          if [ -z "$PYTHON_WASM" ]; then
+            echo "ERROR: Could not find Python WASM binary — listing build/cpython-wasi/:"
+            ls build/cpython-wasi/ 2>/dev/null || true
+            ls build/cpython-wasi/install/bin/ 2>/dev/null || true
+            exit 1
+          fi
+
+          # CPython install prefix — needed so Python can find its stdlib
           CPYTHON_INSTALL=$(realpath build/cpython-wasi/install)
-          PYTHON_WASM="$CPYTHON_INSTALL/bin/python3.14"
-          echo "CPython WASM: $PYTHON_WASM"
-          file "$PYTHON_WASM"
+          echo "CPython install: $CPYTHON_INSTALL"
 
           # Extract Pillow and tiktoken wheels to a test directory
           mkdir -p /tmp/wasi-smoke
@@ -111,7 +125,7 @@ jobs:
             local label="$1"; shift
             echo "=== $label ==="
             if wasmtime run \
-                --dir "$CPYTHON_INSTALL" \
+                --dir "$CPYTHON_INSTALL"::"$CPYTHON_INSTALL" \
                 --dir /tmp/wasi-smoke::/wasi-wheels \
                 "$PYTHON_WASM" -- "$@" 2>&1; then
               echo "[PASS] $label"; PASS=$((PASS+1))
