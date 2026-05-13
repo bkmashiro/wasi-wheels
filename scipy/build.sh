@@ -217,6 +217,20 @@ HOST_CYTHON="$(which cython)"
 PYBIND11_PC_DIR="$(python3.14 -c "import pybind11; import os; print(os.path.join(os.path.dirname(pybind11.__file__), 'share', 'pkgconfig'))" 2>/dev/null || echo "")"
 echo ">>> pybind11 pkgconfig dir: ${PYBIND11_PC_DIR}"
 
+# Create a pkg-config wrapper for the host (WASM) machine.
+# We point it only at PYBIND11_PC_DIR so:
+#   - pybind11 is found (needed by scipy C++ extensions)
+#   - blas/lapack/etc return nothing → graceful skip (required: false in meson)
+# Without a pkg-config in the cross-file [binaries], meson errors out
+# immediately ("Pkg-config for machine host machine not found").
+HOST_PKG_CONFIG="$(which pkg-config 2>/dev/null || echo pkg-config)"
+cat > "${MOCK_BIN}/wasi-pkg-config" << PKGEOF
+#!/bin/bash
+# pkg-config for the WASM host machine — searches only pybind11's pkgconfig dir.
+exec env PKG_CONFIG_LIBDIR="${PYBIND11_PC_DIR}" "${HOST_PKG_CONFIG}" "\$@"
+PKGEOF
+chmod +x "${MOCK_BIN}/wasi-pkg-config"
+
 cat > "${SCRIPT_DIR}/wasi-cross.ini" << EOF
 [binaries]
 c = '${WRAPPER_DIR}/clang'
@@ -227,6 +241,9 @@ fortran = '${MOCK_BIN}/gfortran'
 # Use HOST Python for meson's sysconfig introspection (WASI binary can't be
 # exec'd on Linux). Compilation still targets wasm32-wasip1 via CFLAGS/CC.
 python3 = '${HOST_PYTHON}'
+# pkg-config wrapper that only exposes pybind11; everything else returns empty
+# (blas=none, lapack=none → dependency('none') fails gracefully with required:false)
+pkg-config = '${MOCK_BIN}/wasi-pkg-config'
 
 [properties]
 sizeof_short = 2
@@ -238,7 +255,6 @@ sizeof_double = 8
 sizeof_long_double = 8
 sizeof_size_t = 4
 sizeof_void_p = 4
-# Point meson's host-machine pkg-config at pybind11's pkgconfig directory
 pkg_config_libdir = ['${PYBIND11_PC_DIR}']
 
 [host_machine]
