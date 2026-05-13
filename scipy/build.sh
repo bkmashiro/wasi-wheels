@@ -232,20 +232,15 @@ if [ ! -f "${SCIPY_SRC}/.patched" ]; then
   echo "" > scipy/sparse/linalg/_dsolve/SuperLU/SRC/input_error.c 2>/dev/null || true
 
   # ── SuperLU singlecomplex compat ──────────────────────────────────────────
-  # f2c.h defines 'complex' for single-precision; SuperLU expects 'singlecomplex'.
-  # They are structurally identical: struct { float r, i; }.
-  # Inject a typedef alias in scipy_slu_config.h (included by all SuperLU files),
-  # guarded so slu_scomplex.h's own definition doesn't cause a redefinition error.
-  SUPERLU_CFG="scipy/sparse/linalg/_dsolve/SuperLU/SRC/scipy_slu_config.h"
+  # scipy_slu_config.h is included first in every SuperLU .c file and pulls in
+  # f2c.h, which defines 'complex' as struct { real r, i; } (real = float).
+  # slu_scomplex.h then defines 'singlecomplex' as struct { float r, i; } —
+  # structurally identical but a different C type, causing a redefinition error.
+  # Fix: change slu_scomplex.h to just 'typedef complex singlecomplex;' so
+  # both names refer to exactly the same f2c type.
   SUPERLU_SC="scipy/sparse/linalg/_dsolve/SuperLU/SRC/slu_scomplex.h"
-  if [ -f "${SUPERLU_CFG}" ]; then
-    # After the #include "f2c.h" line, inject singlecomplex typedef
-    sed -i 's|#include "f2c.h"|#include "f2c.h"\n#ifndef SINGLECOMPLEX_DEFINED\n#define SINGLECOMPLEX_DEFINED\ntypedef complex singlecomplex;\n#endif|' \
-      "${SUPERLU_CFG}" 2>/dev/null || true
-  fi
   if [ -f "${SUPERLU_SC}" ]; then
-    # Guard the existing singlecomplex typedef so it doesn't redefine
-    sed -i 's|typedef struct { float r, i; } singlecomplex;|#ifndef SINGLECOMPLEX_DEFINED\n#define SINGLECOMPLEX_DEFINED\ntypedef struct { float r, i; } singlecomplex;\n#endif|' \
+    sed -i 's|typedef struct { float r, i; } singlecomplex;|typedef complex singlecomplex;|' \
       "${SUPERLU_SC}" 2>/dev/null || true
   fi
 
