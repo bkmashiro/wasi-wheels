@@ -108,9 +108,11 @@ jobs:
       - name: Componentize test app
         run: |
           cd /tmp/wit-test
-          PYTHONPATH=/tmp/wasi-wheels:. \
-            componentize-py -d wit -w wasi-wheels-test \
-            componentize test_app -o /tmp/test.wasm
+          componentize-py -d wit -w wasi-wheels-test \
+            componentize test_app \
+            -p . \
+            -p /tmp/wasi-wheels \
+            -o /tmp/test.wasm
           echo "Component size: $(wc -c < /tmp/test.wasm) bytes"
 
       - name: Run integration test
