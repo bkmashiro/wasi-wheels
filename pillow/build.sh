@@ -50,27 +50,7 @@ if [ ! -d "${PILLOW_SRC}" ]; then
   tar xzf "${PILLOW_SRC}.tar.gz"
 fi
 
-# ── Step 3: patch setup.py for Python 3.13+ exec()/locals() semantics ────────
-# Python 3.13+ no longer populates locals() from exec() in function scope.
-# Pillow 9.5.0's get_version() does exactly this → KeyError: '__version__'
-python3 - <<'PYEOF'
-import re, sys
-path = "setup.py"
-src = open(path).read()
-# Replace:  return locals()["__version__"]
-# With:     exec into explicit dict
-patched = src.replace(
-    'return locals()["__version__"]',
-    '_ns = {}; exec(open("src/PIL/_version.py").read(), _ns); return _ns["__version__"]'
-)
-if patched == src:
-    print("WARNING: get_version patch not applied — pattern not found", file=sys.stderr)
-else:
-    open(path, "w").write(patched)
-    print("Patched setup.py get_version() for Python 3.13+ compatibility")
-PYEOF
-
-# ── Step 5: clang wrapper that strips host include paths ──────────────────────
+# ── Step 3: clang wrapper that strips host include paths ──────────────────────
 # setuptools/distutils always appends -I/usr/include and -I/usr/local/include
 # from the host Python's sysconfig, regardless of DISABLE_PLATFORM_GUESSING.
 # These leak Linux-specific headers into the WASI cross-compile.
@@ -99,8 +79,26 @@ cp "${WRAPPER_DIR}/clang" "${WRAPPER_DIR}/clang++"
 sed -i "s|${REAL_CLANG}|${REAL_CLANGXX}|g" "${WRAPPER_DIR}/clang++"
 chmod +x "${WRAPPER_DIR}/clang++"
 
-# ── Step 6: build Pillow (PNG/zlib only, all other formats disabled) ──────────
+# ── Step 4: build Pillow (PNG/zlib only, all other formats disabled) ──────────
 cd "${PILLOW_SRC}"
+
+# Patch setup.py for Python 3.13+ exec()/locals() semantics.
+# Python 3.13+ no longer populates locals() from exec() in function scope.
+# Pillow 9.5.0's get_version() does exactly this → KeyError: '__version__'
+python3 - <<'PYEOF'
+import sys
+path = "setup.py"
+src = open(path).read()
+patched = src.replace(
+    'return locals()["__version__"]',
+    '_ns = {}; exec(open("src/PIL/_version.py").read(), _ns); return _ns["__version__"]'
+)
+if patched == src:
+    print("WARNING: get_version patch not applied — pattern not found", file=sys.stderr)
+else:
+    open(path, "w").write(patched)
+    print("Patched setup.py get_version() for Python 3.13+ compatibility")
+PYEOF
 
 export CC="${WRAPPER_DIR}/clang"
 export CXX="${WRAPPER_DIR}/clang++"
