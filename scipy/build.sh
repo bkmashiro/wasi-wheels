@@ -422,6 +422,25 @@ cython = '${HOST_CYTHON}'
 pkg-config = 'pkg-config'
 EOF
 
+# ── Stub setjmp.h for WASI ───────────────────────────────────────────────────
+# The WASI sysroot setjmp.h unconditionally #errors unless -mllvm -wasm-enable-sjlj
+# is passed (requires WASM exception-handling proposal in the engine).
+# qhull and a few other scipy components use setjmp only for fatal error recovery.
+# We provide a stub that makes setjmp() always return 0 and longjmp() trap —
+# semantically: "no error saved, fatal errors abort". This avoids the proposal.
+STUB_INC="${SCRIPT_DIR}/build/stub_include"
+mkdir -p "${STUB_INC}"
+cat > "${STUB_INC}/setjmp.h" << 'SJEOF'
+#pragma once
+/* WASI setjmp stub: setjmp always succeeds (returns 0), longjmp traps.
+   Used by qhull error paths — fatal errors become unreachable traps. */
+typedef int jmp_buf[32];
+#define setjmp(env)  (0)
+static inline __attribute__((noreturn)) void longjmp(jmp_buf env, int val) {
+    __builtin_trap();
+}
+SJEOF
+
 # ── Cross-compile env vars ────────────────────────────────────────────────────
 WASM_TARGET="--target=wasm32-wasip1"
 PY_INC="${CROSS_PREFIX}/include/python3.14"
@@ -436,6 +455,7 @@ export STRIP="${WASI_SDK_PATH}/bin/llvm-strip"
 
 export CFLAGS="${WASM_TARGET} -fPIC \
   -I${PY_INC} \
+  -I${STUB_INC} \
   -isystem ${WASI_SYSROOT}/include \
   -D__EMSCRIPTEN__=1 \
   -DNPY_NO_SIGNAL \
@@ -445,6 +465,7 @@ export CFLAGS="${WASM_TARGET} -fPIC \
 
 export CXXFLAGS="${WASM_TARGET} -fPIC \
   -I${PY_INC} \
+  -I${STUB_INC} \
   -isystem ${WASI_SYSROOT}/include \
   -fwasm-exceptions \
   -fvisibility=default"
