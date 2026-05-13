@@ -93,21 +93,56 @@ if [ ! -f "${SCIPY_SRC}/.patched" ]; then
   touch "${SCIPY_SRC}/.patched"
 fi
 
-# ── Mock gfortran (no Fortran compiler for WASM; lapack_lite uses pre-f2c'd C) ─
+# ── Clang wrapper: strip GNU ld flags wasm-ld doesn't support ────────────────
+# Host Python's sysconfig injects --start-group/--end-group (GNU ld only).
+# wasm-ld rejects them. Wrap clang to strip them before forwarding.
+WRAPPER_DIR="$(mktemp -d)"
+cat > "${WRAPPER_DIR}/clang" << 'WEOF'
+#!/bin/bash
+args=()
+for arg in "$@"; do
+  case "$arg" in
+    -Wl,--start-group|-Wl,--end-group|--start-group|--end-group) ;;
+    *) args+=("$arg") ;;
+  esac
+done
+exec "@REAL_CLANG@" "${args[@]}"
+WEOF
+sed -i "s|@REAL_CLANG@|${WASI_SDK_PATH}/bin/clang|g" "${WRAPPER_DIR}/clang"
+chmod +x "${WRAPPER_DIR}/clang"
+cp "${WRAPPER_DIR}/clang" "${WRAPPER_DIR}/clang++"
+sed -i "s|${WASI_SDK_PATH}/bin/clang\b|${WASI_SDK_PATH}/bin/clang++|g" "${WRAPPER_DIR}/clang++"
+
+# ── Mock gfortran: passes version detection, fails on actual compile ──────────
+# meson requires fortran to be in the cross-file [binaries] section.
+# lapack_lite C sources are pre-generated (no Fortran compilation needed).
 MOCK_BIN="$(mktemp -d)"
-printf '#!/bin/bash\necho "gfortran stub"\nexit 1\n' > "${MOCK_BIN}/gfortran"
+cat > "${MOCK_BIN}/gfortran" << 'GEOF'
+#!/bin/bash
+for arg in "$@"; do
+  case "$arg" in
+    --version|-dumpversion)
+      echo "GNU Fortran (WASI stub) 13.0.0"
+      exit 0 ;;
+  esac
+done
+echo "gfortran: WASI does not support Fortran compilation" >&2
+exit 1
+GEOF
 chmod +x "${MOCK_BIN}/gfortran"
-# Prepend wasi-sdk so clang/llvm-ar/etc. are picked up by meson
-export PATH="${WASI_SDK_PATH}/bin:${MOCK_BIN}:${PATH}"
+
+# Wrapper dir first so our clang wrapper takes precedence over wasi-sdk clang
+export PATH="${WRAPPER_DIR}:${WASI_SDK_PATH}/bin:${MOCK_BIN}:${PATH}"
 
 # ── Meson cross-file ──────────────────────────────────────────────────────────
 HOST_PYTHON="$(which python3.14)"
 cat > "${SCRIPT_DIR}/wasi-cross.ini" << EOF
 [binaries]
-c = 'clang'
-cpp = 'clang++'
+c = '${WRAPPER_DIR}/clang'
+cpp = '${WRAPPER_DIR}/clang++'
 ar = 'llvm-ar'
 strip = 'llvm-strip'
+fortran = '${MOCK_BIN}/gfortran'
 # Use HOST Python for meson's sysconfig introspection (WASI binary can't be
 # exec'd on Linux). Compilation still targets wasm32-wasip1 via CFLAGS/CC.
 python3 = '${HOST_PYTHON}'
@@ -147,8 +182,8 @@ WASM_TARGET="--target=wasm32-wasip1"
 PY_INC="${CROSS_PREFIX}/include/python3.14"
 PY_LIB="${CROSS_PREFIX}/lib/libpython3.14.so"
 
-export CC="${WASI_SDK_PATH}/bin/clang"
-export CXX="${WASI_SDK_PATH}/bin/clang++"
+export CC="${WRAPPER_DIR}/clang"
+export CXX="${WRAPPER_DIR}/clang++"
 export AR="${WASI_SDK_PATH}/bin/llvm-ar"
 export RANLIB=true
 export LDSHARED="${CC}"
