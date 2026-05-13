@@ -12,17 +12,19 @@ Fork of [dicej/wasi-wheels](https://github.com/dicej/wasi-wheels), migrated from
 | pydantic_core | 2.41.5 | ✅ | ✅ | requires `typing_extensions` (pure Python) |
 | regex | latest | ✅ | ✅ | |
 | tiktoken | 0.12.0 | ✅ | ✅ | see limits below |
-| Pillow | latest | ❌ | ✅ | see limits below |
+| Pillow | latest | 🧪 | ✅ | see limits below |
 
 Pre-built wheels are on the [Releases page](../../releases) — grab the `latest` pre-release for the most recent build from `main`.
 
 ## Known Limits
 
-### Pillow — excluded from componentize-py
+### Pillow — `__wasi_proc_exit` stub (experimental)
 
-PIL's `.so` extensions import `__wasi_proc_exit` (WASI preview 1 ABI). componentize-py 0.23.0 cannot resolve this symbol and raises `AssertionError: unresolved symbol(s)` at compile time. Pillow works fine under a plain wasmtime + CPython WASM runtime but cannot be used inside a WASM Component built with componentize-py.
+PIL's `.so` extensions import `__wasi_proc_exit` (the raw WASI proc_exit syscall, called by wasi-libc's `exit()`/`abort()` in error paths). componentize-py 0.23.0 cannot resolve this symbol as a dynamic import.
 
-**Workaround**: do image processing on the host side and pass results in via the WIT interface.
+**Fix applied**: `pillow/build.sh` compiles a `__wasi_proc_exit` stub (→ `__builtin_trap()`) and links it into every PIL `.so` at build time, so the symbol is resolved internally and never appears as an unresolved import.
+
+Pillow works fine under a plain wasmtime + CPython WASM runtime regardless.
 
 ### tiktoken — `get_encoding()` / `list_encoding_names()` unavailable in WASM
 

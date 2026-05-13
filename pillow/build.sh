@@ -101,6 +101,26 @@ cp "${WRAPPER_DIR}/clang" "${WRAPPER_DIR}/clang++"
 sed -i "s|${REAL_CLANG}|${REAL_CLANGXX}|g" "${WRAPPER_DIR}/clang++"
 chmod +x "${WRAPPER_DIR}/clang++"
 
+# ── Step 4b: compile __wasi_proc_exit stub ────────────────────────────────────
+# componentize-py cannot resolve __wasi_proc_exit (a wasi-libc internal symbol
+# imported by Pillow's abort/exit paths). Define it as a trap so the symbol is
+# satisfied internally — componentize-py never sees it as an unresolved import.
+cat > "${WRAPPER_DIR}/wasi_compat.c" << 'CEOF'
+/* Stub: __wasi_proc_exit is the raw WASI proc_exit syscall used by wasi-libc's
+ * exit() and abort(). Pillow only reaches this in error paths (bad alloc,
+ * codec failure). Replace with __builtin_trap() so the WASM module halts
+ * cleanly (unreachable) instead of importing an unresolvable symbol. */
+__attribute__((noreturn))
+void __wasi_proc_exit(int code) {
+    __builtin_trap();
+}
+CEOF
+"${WASI_SDK_PATH}/bin/clang" \
+    --target=wasm32-wasip1 --sysroot="${WASI_SYSROOT}" -fPIC \
+    -c "${WRAPPER_DIR}/wasi_compat.c" -o "${WRAPPER_DIR}/wasi_compat.o"
+"${WASI_SDK_PATH}/bin/llvm-ar" rcs "${WRAPPER_DIR}/libwasi_compat.a" "${WRAPPER_DIR}/wasi_compat.o"
+echo ">>> Compiled __wasi_proc_exit stub -> ${WRAPPER_DIR}/libwasi_compat.a"
+
 # ── Step 5: build Pillow ──────────────────────────────────────────────────────
 cd "${PILLOW_SRC}"
 
@@ -170,10 +190,12 @@ export LDFLAGS="--target=wasm32-wasip1 \
   -L${DEPS_PREFIX}/lib \
   -L${WASI_SYSROOT}/lib/wasm32-wasip1 \
   -L${CROSS_PREFIX}/lib \
+  -L${WRAPPER_DIR} \
   ${CROSS_PREFIX}/lib/libpython3.14.so \
   -Wl,--experimental-pic \
   -Wl,--shared \
-  -Wl,--unresolved-symbols=import-dynamic"
+  -Wl,--unresolved-symbols=import-dynamic \
+  -lwasi_compat"
 
 export LDSHARED="${WRAPPER_DIR}/clang"
 
