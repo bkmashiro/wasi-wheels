@@ -242,9 +242,21 @@ if [ ! -f "${SCIPY_SRC}/.patched" ]; then
   sed -i 's/^void/int/g' scipy/spatial/qhull_misc.h 2>/dev/null || true
   echo "" > scipy/sparse/linalg/_dsolve/SuperLU/SRC/input_error.c 2>/dev/null || true
 
-  # Note: slu_scomplex.h's 'typedef struct { float r, i; } singlecomplex;' is
-  # left as-is. Now that f2c.h properly defines 'complex' (via #undef above),
-  # singlecomplex is a distinct but compatible C type — no patch needed here.
+  # ── Fix SuperLU singlecomplex (Pyodide patch 0003 compat) ────────────────────
+  # Pyodide patch 0003 modifies scipy_slu_config.h to:
+  #   #undef complex
+  #   #include "f2c.h"         ← brings in complex (struct{real r,i;}) and doublecomplex
+  #   #define complex singlecomplex   ← make 'complex' token expand to 'singlecomplex'
+  # It also comments out the singlecomplex typedef in slu_scomplex.h with
+  # "// defined in CLAPACK" — expecting OpenBLAS/CLAPACK to provide it.
+  # We use reference BLAS (f2c, no CLAPACK), so singlecomplex is never defined.
+  # Fix: insert typedef before the #define so singlecomplex is a real C type.
+  SCIPY_SLU_CFG="scipy/sparse/linalg/_dsolve/SuperLU/SRC/scipy_slu_config.h"
+  if grep -q 'define complex singlecomplex' "${SCIPY_SLU_CFG}" 2>/dev/null; then
+    sed -i 's|#define complex singlecomplex|typedef struct { float r, i; } singlecomplex;\n#define complex singlecomplex|' \
+      "${SCIPY_SLU_CFG}"
+    echo ">>> Injected singlecomplex typedef into scipy_slu_config.h"
+  fi
 
   cd "${SCRIPT_DIR}"
 
