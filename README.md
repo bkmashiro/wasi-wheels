@@ -12,19 +12,15 @@ Fork of [dicej/wasi-wheels](https://github.com/dicej/wasi-wheels), migrated from
 | pydantic_core | 2.41.5 | ✅ | ✅ | requires `typing_extensions` (pure Python) |
 | regex | latest | ✅ | ✅ | |
 | tiktoken | 0.12.0 | ✅ | ✅ | see limits below |
-| Pillow | latest | 🧪 | ✅ | see limits below |
+| Pillow | latest | ✅ | ✅ | |
 
 Pre-built wheels are on the [Releases page](../../releases) — grab the `latest` pre-release for the most recent build from `main`.
 
 ## Known Limits
 
-### Pillow — `__wasi_proc_exit` stub (experimental)
+### Pillow — notes
 
-PIL's `.so` extensions import `__wasi_proc_exit` (the raw WASI proc_exit syscall, called by wasi-libc's `exit()`/`abort()` in error paths). componentize-py 0.23.0 cannot resolve this symbol as a dynamic import.
-
-**Fix applied**: `pillow/build.sh` compiles a `__wasi_proc_exit` stub (→ `__builtin_trap()`) and links it into every PIL `.so` at build time, so the symbol is resolved internally and never appears as an unresolved import.
-
-Pillow works fine under a plain wasmtime + CPython WASM runtime regardless.
+Pillow works with both componentize-py and wasmtime. A `__wasi_proc_exit` stub (`→ __builtin_trap()`) is linked into the PIL `.so` files at build time so the symbol is resolved internally. This symbol is only reached in abort/error paths; normal image operations are unaffected.
 
 ### tiktoken — `get_encoding()` / `list_encoding_names()` unavailable in WASM
 
@@ -78,9 +74,10 @@ Tested end-to-end with componentize-py 0.23.0 + wasmtime 44:
 [OK] pydantic_core: v2.41.5, SchemaValidator — functional
 [OK] numpy:         v1.26.0b1, array math — functional
 [OK] tiktoken:      v0.12.0, native module (CoreBPE) — functional
+[OK] Pillow:        Image.new + getpixel + PNG encode — functional
 ```
 
-All four packages compile into a single WASM component and run correctly under wasmtime.
+All five packages compile into a single WASM component and run correctly under wasmtime.
 
 ## Toolchain
 
