@@ -578,10 +578,11 @@ fi
 
 echo ">>> ninja build"
 PYTHONPATH="${CROSS_PREFIX}/lib/python3.14" \
-  ninja -C "${BUILD_DIR}" -j"$(nproc)" 2>&1 | tee /tmp/scipy_ninja.log
+  ninja -C "${BUILD_DIR}" -j"$(nproc)" -k0 2>&1 | tee /tmp/scipy_ninja.log
 EXIT=${PIPESTATUS[0]}
 if [ "$EXIT" != "0" ]; then
-  echo "ninja build failed"
+  echo "ninja build failed — errors:"
+  grep -E "^(FAILED|.*error:)" /tmp/scipy_ninja.log | head -100
   exit "$EXIT"
 fi
 
