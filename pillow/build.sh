@@ -130,6 +130,7 @@ export CFLAGS="--target=wasm32-wasip1 --sysroot=${WASI_SYSROOT} \
   -isystem ${WASI_SYSROOT}/include \
   -isystem ${WASI_SYSROOT}/include/wasm32-wasip1 \
   -I${CROSS_PREFIX}/include/python3.14 \
+  -I${DEPS_PREFIX}/include \
   -D__EMSCRIPTEN__=1 \
   -fPIC"
 
