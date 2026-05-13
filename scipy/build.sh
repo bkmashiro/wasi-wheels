@@ -245,12 +245,21 @@ args=()
 for arg in "$@"; do
   case "$arg" in
     -Wl,--start-group|-Wl,--end-group|--start-group|--end-group) ;;
+    # Drop host Python include dirs — meson's py3.dependency() injects the
+    # host Python's x86_64 headers, which fail LONG_BIT/SIZEOF_LONG checks
+    # when compiling for wasm32. Our WASI Python include is prepended below.
+    -I@HOST_PY_INC@) ;;
     *) args+=("$arg") ;;
   esac
 done
-exec "@REAL_CLANG@" "${args[@]}"
+# Prepend WASI Python include so it wins over any host Python include meson injects
+exec "@REAL_CLANG@" "-I@WASI_PY_INC@" "${args[@]}"
 WEOF
+HOST_PY_INC="$(python3.14 -c "import sysconfig; print(sysconfig.get_path('include'))" 2>/dev/null)"
+WASI_PY_INC="${CROSS_PREFIX}/include/python3.14"
 sed -i "s|@REAL_CLANG@|${WASI_SDK_PATH}/bin/clang|g" "${WRAPPER_DIR}/clang"
+sed -i "s|@HOST_PY_INC@|${HOST_PY_INC}|g" "${WRAPPER_DIR}/clang"
+sed -i "s|@WASI_PY_INC@|${WASI_PY_INC}|g" "${WRAPPER_DIR}/clang"
 chmod +x "${WRAPPER_DIR}/clang"
 cp "${WRAPPER_DIR}/clang" "${WRAPPER_DIR}/clang++"
 sed -i "s|${WASI_SDK_PATH}/bin/clang\b|${WASI_SDK_PATH}/bin/clang++|g" "${WRAPPER_DIR}/clang++"
