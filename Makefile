@@ -106,7 +106,7 @@ $(BUILD_DIR)/tiktoken-wasi.tar.gz: $(WASI_SDK) $(CPYTHON)
 $(BUILD_DIR)/Pillow-wasi.tar.gz: $(WASI_SDK) $(CPYTHON)
 	@mkdir -p "$(@D)"
 	(cd pillow && CROSS_PREFIX=$(CPYTHON) WASI_SDK_PATH=$(WASI_SDK) bash build.sh)
-	cp -a pillow/pillow-*/build/PIL "$(@D)"
+	cp -a pillow/[Pp]illow-*/build/PIL "$(@D)"
 	(cd "$(@D)" && tar czf Pillow-wasi.tar.gz PIL)
 
 $(BUILD_DIR)/sqlalchemy-wasi.tar.gz: $(WASI_SDK) $(CPYTHON)

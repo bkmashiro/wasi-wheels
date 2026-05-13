@@ -1,7 +1,10 @@
 #!/bin/bash
-# Build Pillow 10.x for wasm32-wasip1 (PNG-only, zlib-only build)
-# 10.4.0: last series with traditional setup.py + --disable-X flags.
-# 11.x removed these CLI flags; 12.x added pil_imaging_mode (build_clib issues).
+# Build Pillow 9.5.0 for wasm32-wasip1 (PNG-only, zlib-only build)
+# Version matrix:
+#   9.5.0  ✓  jpeg optional, setup.py + --disable-X flags work
+#   10.x   ✗  jpeg became a required dependency
+#   11.x   ✗  --disable-X CLI flags removed from setup.py
+#   12.x   ✗  pil_imaging_mode internal library (build_clib skipped in cross-compile)
 
 set -eou pipefail
 
@@ -11,8 +14,8 @@ WASI_SYSROOT="${WASI_SDK_PATH}/share/wasi-sysroot"
 # non-PIC libz.a across runs.  A local dir is always rebuilt fresh.
 ZLIB_PREFIX="$(pwd)/zlib-pic-install"
 
-PILLOW_VERSION="10.4.0"
-PILLOW_SRC="pillow-${PILLOW_VERSION}"
+PILLOW_VERSION="9.5.0"
+PILLOW_SRC="Pillow-${PILLOW_VERSION}"
 
 if [ ! -e venv ]; then
   python3.14 -m venv venv
@@ -42,7 +45,7 @@ fi
 # ── Step 2: download Pillow source ────────────────────────────────────────────
 if [ ! -d "${PILLOW_SRC}" ]; then
   [ -f "${PILLOW_SRC}.tar.gz" ] || \
-    curl -fsSL "https://files.pythonhosted.org/packages/cd/74/ad3d526f3bf7b6d3f408b73fde271ec69dfac8b81341a318ce825f2b3812/pillow-10.4.0.tar.gz" \
+    curl -fsSL "https://files.pythonhosted.org/packages/00/d5/4903f310765e0ff2b8e91ffe55031ac6af77d982f0156061e20a4d1a8b2d/Pillow-9.5.0.tar.gz" \
       -o "${PILLOW_SRC}.tar.gz"
   tar xzf "${PILLOW_SRC}.tar.gz"
 fi
