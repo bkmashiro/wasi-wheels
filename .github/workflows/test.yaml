@@ -48,8 +48,16 @@ jobs:
           # typing_extensions is imported by pydantic_core/__init__.py.
           # It is pure Python and safe to use from the host install.
           pip install --target /tmp/wasi-wheels typing_extensions
-          echo "typing_extensions installed:"
-          ls /tmp/wasi-wheels/typing_extensions* 2>/dev/null || true
+          echo "=== /tmp/wasi-wheels top-level contents ==="
+          ls /tmp/wasi-wheels/
+          echo "=== typing_extensions verification (host Python) ==="
+          python3 -c "
+          import sys
+          sys.path.insert(0, '/tmp/wasi-wheels')
+          import typing_extensions as te
+          print('typing_extensions version:', te.__version__ if hasattr(te, '__version__') else 'N/A')
+          print('has Sentinel:', hasattr(te, 'Sentinel'))
+          " 2>&1
 
       - name: Fetch WASI WIT dependencies
         run: |
@@ -120,7 +128,15 @@ jobs:
             componentize test_app \
             -p . \
             -p /tmp/wasi-wheels \
-            -o /tmp/test.wasm
+            -o /tmp/test.wasm 2>&1 | tee /tmp/componentize_log.txt
+          EXIT=${PIPESTATUS[0]}
+          if [ "$EXIT" != "0" ]; then
+            echo "## Componentize Error" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+            cat /tmp/componentize_log.txt >> "$GITHUB_STEP_SUMMARY"
+            echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+            exit "$EXIT"
+          fi
           echo "Component size: $(wc -c < /tmp/test.wasm) bytes"
 
       - name: Run integration test
