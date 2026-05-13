@@ -465,6 +465,7 @@ export STRIP="${WASI_SDK_PATH}/bin/llvm-strip"
 export CFLAGS="${WASM_TARGET} -fPIC \
   -I${PY_INC} \
   -I${STUB_INC} \
+  -I$(dirname "${F2C_H}") \
   -isystem ${WASI_SYSROOT}/include \
   -D__EMSCRIPTEN__=1 \
   -DNPY_NO_SIGNAL \
@@ -475,6 +476,7 @@ export CFLAGS="${WASM_TARGET} -fPIC \
 export CXXFLAGS="${WASM_TARGET} -fPIC \
   -I${PY_INC} \
   -I${STUB_INC} \
+  -I$(dirname "${F2C_H}") \
   -isystem ${WASI_SYSROOT}/include \
   -fwasm-exceptions \
   -fvisibility=default"
