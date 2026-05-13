@@ -195,9 +195,11 @@ echo ">>> meson setup"
 cd "${SCRIPT_DIR}/${SCIPY_SRC}"
 
 # Unset WASI-specific vars so meson's host Python works correctly.
-# _PYTHON_SYSCONFIGDATA_NAME breaks sysconfig import → causes "missing distutils".
-# PYTHONPATH must also be clear so venv Python finds its own stdlib, not WASI's.
-PYTHONPATH= _PYTHON_SYSCONFIGDATA_NAME= meson setup "${BUILD_DIR}" \
+# _PYTHON_SYSCONFIGDATA_NAME breaks sysconfig → "missing distutils".
+# PYTHONPATH= (empty string) adds '' to sys.path → "Empty module name".
+# Use env -u to properly unset both variables for this invocation only.
+env -u PYTHONPATH -u _PYTHON_SYSCONFIGDATA_NAME \
+meson setup "${BUILD_DIR}" \
   --cross-file="${SCRIPT_DIR}/wasi-cross.ini" \
   --native-file="${SCRIPT_DIR}/native.ini" \
   --prefix="${INSTALL_DIR}" \
