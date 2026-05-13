@@ -83,6 +83,61 @@ jobs:
         shell: bash
         run: make pillow
 
+      - name: Smoke-test Pillow and tiktoken with wasmtime
+        continue-on-error: true
+        run: |
+          # Install wasmtime (same version as integration test)
+          curl -fsSL https://github.com/bytecodealliance/wasmtime/releases/download/v44.0.1/wasmtime-v44.0.1-x86_64-linux.tar.xz \
+            | tar xJ -C /tmp
+          sudo cp /tmp/wasmtime-v44.0.1-x86_64-linux/wasmtime /usr/local/bin/wasmtime
+          wasmtime --version
+
+          # CPython WASM install dir (absolute — same path that python3.14 binary expects)
+          CPYTHON_INSTALL=$(realpath build/cpython-wasi/install)
+          PYTHON_WASM="$CPYTHON_INSTALL/bin/python3.14"
+          echo "CPython WASM: $PYTHON_WASM"
+          file "$PYTHON_WASM"
+
+          # Extract Pillow and tiktoken wheels to a test directory
+          mkdir -p /tmp/wasi-smoke
+          tar xzf build/Pillow-wasi.tar.gz   -C /tmp/wasi-smoke
+          tar xzf build/tiktoken-wasi.tar.gz -C /tmp/wasi-smoke
+          echo "Wheels in /tmp/wasi-smoke:"
+          ls /tmp/wasi-smoke/
+
+          PASS=0; FAIL=0
+
+          run_test() {
+            local label="$1"; shift
+            echo "=== $label ==="
+            if wasmtime run \
+                --dir "$CPYTHON_INSTALL" \
+                --dir /tmp/wasi-smoke::/wasi-wheels \
+                "$PYTHON_WASM" -- "$@" 2>&1; then
+              echo "[PASS] $label"; PASS=$((PASS+1))
+            else
+              echo "[FAIL] $label (exit $?)"; FAIL=$((FAIL+1))
+            fi
+          }
+
+          run_test "Pillow" -c "
+          import sys; sys.path.insert(0, '/wasi-wheels')
+          from PIL import Image, __version__ as pil_ver
+          img = Image.new('RGB', (8, 8), color=(255, 0, 0))
+          assert img.size == (8, 8), f'unexpected size {img.size}'
+          print('Pillow', pil_ver, 'OK — Image.new', img.size)
+          "
+
+          run_test "tiktoken" -c "
+          import sys; sys.path.insert(0, '/wasi-wheels')
+          import tiktoken._tiktoken as _tt
+          print('tiktoken native module OK, CoreBPE:', hasattr(_tt, 'CoreBPE'))
+          "
+
+          echo ""
+          echo "Smoke-test results: $PASS passed, $FAIL failed"
+          [ "$FAIL" -eq 0 ] || echo "Some tests failed — see output above (non-blocking for now)"
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
