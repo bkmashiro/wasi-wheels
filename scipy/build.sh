@@ -119,50 +119,11 @@ sed -i "s|${WASI_SDK_PATH}/bin/clang\b|${WASI_SDK_PATH}/bin/clang++|g" "${WRAPPE
 # to transpile .f/.f90 files to C, then cross-compiles with wasi-sdk clang.
 MOCK_BIN="$(mktemp -d)"
 
-# Fetch f2c.h (runtime header for f2c-generated C code)
+# Fetch the real f2c.h (complete, with cilist and all I/O structs)
 F2C_H="${MOCK_BIN}/f2c.h"
 curl -fsSL "https://raw.githubusercontent.com/hoodmane/f2c/master/src/f2c.h" \
-  -o "${F2C_H}" 2>/dev/null || \
-curl -fsSL "https://raw.githubusercontent.com/Reference-LAPACK/lapack/master/LAPACKE/utils/lapacke_utils.h" \
-  -o /dev/null && \
-cat > "${F2C_H}" << 'F2CEOF'
-/* Minimal f2c.h for WASI cross-compilation */
-typedef int integer;
-typedef unsigned int uinteger;
-typedef char *address;
-typedef short int shortint;
-typedef float real;
-typedef double doublereal;
-typedef struct { real r, i; } complex;
-typedef struct { doublereal r, i; } doublecomplex;
-typedef long int logical;
-typedef short int shortlogical;
-typedef char logical1;
-typedef char integer1;
-typedef long int ftnlen;
-typedef long int ftnint;
-#define TRUE_ (1)
-#define FALSE_ (0)
-#define abs(x) ((x) >= 0 ? (x) : -(x))
-#define dabs(x) (fabs(x))
-#define min(a,b) ((a) <= (b) ? (a) : (b))
-#define max(a,b) ((a) >= (b) ? (a) : (b))
-#define dmin(a,b) (min(a,b))
-#define dmax(a,b) (max(a,b))
-extern int s_wsfe(), do_fio(), e_wsfe();
-extern int s_wsle(), e_wsle();
-extern void s_stop(char *, ftnlen);
-extern integer s_cmp(char *, char *, ftnlen, ftnlen);
-extern void s_copy(char *, char *, ftnlen, ftnlen);
-extern doublereal pow_dd(doublereal *, doublereal *);
-extern doublereal pow_di(doublereal *, integer *);
-extern integer pow_ii(integer *, integer *);
-extern doublereal d_sign(doublereal *, doublereal *);
-extern doublereal d_sqrt(doublereal *);
-extern doublereal d_abs(doublereal *);
-extern integer i_nint(real *);
-extern integer i_dnnt(doublereal *);
-F2CEOF
+  -o "${F2C_H}"
+echo ">>> f2c.h fetched ($(wc -l < "${F2C_H}") lines)"
 
 REAL_CLANG="${WASI_SDK_PATH}/bin/clang"
 F2C_BIN="${F2C}"
