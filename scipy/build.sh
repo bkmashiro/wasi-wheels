@@ -109,9 +109,36 @@ f2c_compile() {
   local base; base="$(basename "${src%.*}")"
   local tmpdir; tmpdir="$(mktemp -d)"
   cp "$src" "${tmpdir}/${base}.f"
-  (cd "${tmpdir}" && "${F2C}" -A -a "${base}.f" 2>/dev/null) || \
-  (cd "${tmpdir}" && "${F2C}" "${base}.f" 2>/dev/null) || return 1
+  # -R: don't promote REAL to DOUBLE (keeps real functions returning float, matching
+  #     scipy's Cython declarations which expect float, not double).
+  (cd "${tmpdir}" && "${F2C}" -A -a -R "${base}.f" 2>/dev/null) || \
+  (cd "${tmpdir}" && "${F2C}" -R "${base}.f" 2>/dev/null) || return 1
   [ -f "${tmpdir}/${base}.c" ] || return 1
+
+  # ── Strip f2c hidden Fortran character-string-length arguments ────────────────
+  # f2c appends "ftnlen xyz_len" for each CHARACTER argument in the Fortran source.
+  # scipy's Cython bindings (cython_lapack.c, cython_blas.c) were generated without
+  # these extra arguments — they call LAPACK/BLAS subroutines using the standard
+  # N-argument signature.  WASM's strict type system makes this a hard linker error
+  # (vs a silent ABI mismatch on x86-64).  We strip ftnlen parameters from:
+  #   1. Function signatures:  ", ftnlen uplo_len"
+  #   2. Local declarations:   "ftnlen uplo_len;"
+  #   3. Call sites inside generated code: ", (ftnlen)1"  (f2c always emits this form
+  #      for literal CHARACTER arguments, which are always length 1 in LAPACK/BLAS)
+  python3 - "${tmpdir}/${base}.c" << 'PYEOF'
+import re, sys
+with open(sys.argv[1]) as fh:
+    code = fh.read()
+# 1. Remove ftnlen params from function signatures (may be several per function)
+code = re.sub(r',\s*ftnlen\s+\w+_len', '', code)
+# 2. Remove ftnlen local variable declarations left over after sig removal
+code = re.sub(r'^\s*ftnlen\s+\w+_len;\s*$', '', code, flags=re.MULTILINE)
+# 3. Remove literal (ftnlen)N call-site arguments (always "(ftnlen)1" in LAPACK/BLAS)
+code = re.sub(r',\s*\(ftnlen\)\d+L?', '', code)
+with open(sys.argv[1], 'w') as fh:
+    fh.write(code)
+PYEOF
+
   "${WASI_SDK_PATH}/bin/clang" \
     --target=wasm32-wasip1 --sysroot="${WASI_SYSROOT}" \
     -fPIC -O2 \
@@ -274,16 +301,44 @@ fi
 WRAPPER_DIR="$(mktemp -d)"
 cat > "${WRAPPER_DIR}/clang" << 'WEOF'
 #!/bin/bash
+# Filter a list of arguments, writing result into $1 (array name passed by ref).
+_filter_args() {
+  local -n _dest="$1"; shift
+  for arg in "$@"; do
+    case "$arg" in
+      # GNU ld group flags — wasm-ld rejects them
+      -Wl,--start-group|-Wl,--end-group|--start-group|--end-group) ;;
+      # Version-script linker flag — wasm-ld doesn't support it
+      --version-script=*|-Wl,--version-script=*) ;;
+      # POSIX threads flag — not meaningful for wasm32-wasip1
+      -pthread) ;;
+      # Drop host Python include dirs — meson's py3.dependency() injects the
+      # host Python's x86_64 headers, which fail LONG_BIT/SIZEOF_LONG checks
+      # when compiling for wasm32. Our WASI Python include is prepended below.
+      -I@HOST_PY_INC@) ;;
+      *) _dest+=("$arg") ;;
+    esac
+  done
+}
+
 args=()
 for arg in "$@"; do
-  case "$arg" in
-    -Wl,--start-group|-Wl,--end-group|--start-group|--end-group) ;;
-    # Drop host Python include dirs — meson's py3.dependency() injects the
-    # host Python's x86_64 headers, which fail LONG_BIT/SIZEOF_LONG checks
-    # when compiling for wasm32. Our WASI Python include is prepended below.
-    -I@HOST_PY_INC@) ;;
-    *) args+=("$arg") ;;
-  esac
+  if [[ "$arg" == @* ]]; then
+    # meson uses response files (@/path/to/args.rsp) for long link commands.
+    # Expand the file, filter each line, write a new filtered response file
+    # alongside the original so we don't exceed PATH_MAX.
+    rsp_src="${arg#@}"
+    rsp_dst="${rsp_src}.filtered.rsp"
+    : > "$rsp_dst"
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      filtered_line=()
+      _filter_args filtered_line "$line"
+      [[ ${#filtered_line[@]} -gt 0 ]] && printf '%s\n' "${filtered_line[@]}" >> "$rsp_dst"
+    done < "$rsp_src"
+    args+=("@${rsp_dst}")
+  else
+    _filter_args args "$arg"
+  fi
 done
 # Prepend WASI Python include so it wins over any host Python include meson injects
 exec "@REAL_CLANG@" "-I@WASI_PY_INC@" "${args[@]}"
@@ -350,6 +405,8 @@ while [ \$i -lt \${#args[@]} ]; do
     -std=legacy|-std=f*|-std=gnu*) ;;  # gfortran Fortran standard flags, unknown to clang
     -lgfortran|-lquadmath) ;;  # gfortran runtime libs — don't exist for WASI
     -Wl,--start-group|-Wl,--end-group|--start-group|--end-group) ;;  # GNU ld only, wasm-ld rejects
+    --version-script=*|-Wl,--version-script=*) ;;  # wasm-ld doesn't support version scripts
+    -pthread) ;;  # not meaningful for wasm32-wasip1
     *) PASS_ARGS+=("\$a") ;;
   esac
   i=\$((i+1))
@@ -524,7 +581,7 @@ export CXXFLAGS="${WASM_TARGET} -fPIC \
   -D__EMSCRIPTEN__=1 \
   -DNPY_NO_SIGNAL \
   -D_WASI_EMULATED_SIGNAL \
-  -fwasm-exceptions \
+  -fno-exceptions \
   -fvisibility=default"
 
 export LDFLAGS="${WASM_TARGET} \
