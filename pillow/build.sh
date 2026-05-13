@@ -120,6 +120,37 @@ else:
     print("Patched setup.py get_version() for Python 3.13+ compatibility")
 PYEOF
 
+# Patch Jpeg.h: replace #include <setjmp.h> with a WASI-compatible stub.
+# WASI setjmp.h raises #error without the EH proposal. Pillow uses setjmp
+# only for JPEG error recovery; valid JPEGs never invoke longjmp at runtime.
+python3 - <<'PYEOF'
+import sys
+path = "src/libImaging/Jpeg.h"
+src = open(path).read()
+stub = (
+    "#ifdef __wasi__\n"
+    "/* WASI: setjmp/longjmp unavailable without Exception Handling proposal.\n"
+    " * Stub: setjmp always returns 0 (no error); longjmp traps the WASM module.\n"
+    " * Valid JPEG operations never call longjmp, so decoding/encoding works fine. */\n"
+    "typedef unsigned char jmp_buf[16];\n"
+    "#ifndef setjmp\n"
+    "#define setjmp(env) 0\n"
+    "#endif\n"
+    "#ifndef longjmp\n"
+    "#define longjmp(env, val) __builtin_trap()\n"
+    "#endif\n"
+    "#else\n"
+    "#include <setjmp.h>\n"
+    "#endif\n"
+)
+patched = src.replace("#include <setjmp.h>", stub, 1)
+if patched == src:
+    print("WARNING: Jpeg.h setjmp patch not applied — pattern not found", file=sys.stderr)
+else:
+    open(path, "w").write(patched)
+    print("Patched Jpeg.h: replaced #include <setjmp.h> with WASI stub")
+PYEOF
+
 export CC="${WRAPPER_DIR}/clang"
 export CXX="${WRAPPER_DIR}/clang++"
 export AR="${WASI_SDK_PATH}/bin/llvm-ar"
