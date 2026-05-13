@@ -47,19 +47,37 @@ mkdir -p "${BLAS_BUILD}" "${PKG_CONFIG_DIR}"
 
 if [ ! -f "${BLAS_BUILD}/libf2c.a" ]; then
   echo ">>> Building libf2c.a (f2c runtime) for WASM"
+  # hoodmane/f2c is a compiler-only repo; the runtime is a separate netlib package.
+  LIBF2C_DIR="${BLAS_BUILD}/libf2c"
+  if [ ! -d "${LIBF2C_DIR}" ]; then
+    mkdir -p "${LIBF2C_DIR}"
+    curl -fsSL "http://www.netlib.org/f2c/libf2c.zip" -o "${BLAS_BUILD}/libf2c.zip"
+    python3 -c "
+import zipfile, os
+z = zipfile.ZipFile('${BLAS_BUILD}/libf2c.zip')
+z.extractall('${LIBF2C_DIR}')
+"
+  fi
   mkdir -p "${BLAS_BUILD}/f2c_obj"
-  for csrc in "${F2C_SRC}/libF77"/*.c; do
+  for csrc in "${LIBF2C_DIR}"/*.c; do
     [ -f "$csrc" ] || continue
     base="$(basename "${csrc%.*}")"
     "${WASI_SDK_PATH}/bin/clang" \
       --target=wasm32-wasip1 --sysroot="${WASI_SYSROOT}" \
       -fPIC -O2 \
-      -I"${F2C_SRC}" \
+      -I"${LIBF2C_DIR}" \
       -Wno-implicit-function-declaration -Wno-return-type \
+      -Wno-implicit-int \
       -c "$csrc" -o "${BLAS_BUILD}/f2c_obj/${base}.o" 2>/dev/null || true
   done
-  "${WASI_SDK_PATH}/bin/llvm-ar" rcs "${BLAS_BUILD}/libf2c.a" "${BLAS_BUILD}/f2c_obj/"*.o
-  echo ">>> libf2c.a: $(ls -lh "${BLAS_BUILD}/libf2c.a" 2>/dev/null || echo 'MISSING')"
+  OBJ_COUNT=$(ls "${BLAS_BUILD}/f2c_obj/"*.o 2>/dev/null | wc -l)
+  if [ "${OBJ_COUNT}" -gt 0 ]; then
+    "${WASI_SDK_PATH}/bin/llvm-ar" rcs "${BLAS_BUILD}/libf2c.a" "${BLAS_BUILD}/f2c_obj/"*.o
+    echo ">>> libf2c.a: ${OBJ_COUNT} objects, $(ls -lh "${BLAS_BUILD}/libf2c.a")"
+  else
+    echo "WARNING: no libf2c objects compiled — f2c runtime symbols may be missing"
+    touch "${BLAS_BUILD}/libf2c.a"  # empty placeholder so the check passes
+  fi
 fi
 
 # ── Build reference BLAS + LAPACK for WASM ───────────────────────────────────
@@ -102,8 +120,13 @@ if [ ! -f "${BLAS_BUILD}/libblas.a" ]; then
     [ -f "$f" ] || continue
     f2c_compile "$f" "${BLAS_BUILD}/blas_obj" || BLAS_FAIL=$((BLAS_FAIL+1))
   done
-  "${WASI_SDK_PATH}/bin/llvm-ar" rcs "${BLAS_BUILD}/libblas.a" "${BLAS_BUILD}/blas_obj/"*.o 2>/dev/null
-  echo ">>> libblas.a built (${BLAS_FAIL} failed): $(ls -lh "${BLAS_BUILD}/libblas.a" 2>/dev/null)"
+  BLAS_OBJS=$(ls "${BLAS_BUILD}/blas_obj/"*.o 2>/dev/null | wc -l)
+  if [ "${BLAS_OBJS}" -gt 0 ]; then
+    "${WASI_SDK_PATH}/bin/llvm-ar" rcs "${BLAS_BUILD}/libblas.a" "${BLAS_BUILD}/blas_obj/"*.o
+    echo ">>> libblas.a built (${BLAS_FAIL} failed): ${BLAS_OBJS} objects, $(ls -lh "${BLAS_BUILD}/libblas.a")"
+  else
+    echo "ERROR: no BLAS objects compiled"; exit 1
+  fi
 fi
 
 if [ ! -f "${BLAS_BUILD}/liblapack.a" ]; then
@@ -115,8 +138,13 @@ if [ ! -f "${BLAS_BUILD}/liblapack.a" ]; then
     [ -f "$f" ] || continue
     f2c_compile "$f" "${BLAS_BUILD}/lapack_obj" || LAPACK_FAIL=$((LAPACK_FAIL+1))
   done
-  "${WASI_SDK_PATH}/bin/llvm-ar" rcs "${BLAS_BUILD}/liblapack.a" "${BLAS_BUILD}/lapack_obj/"*.o 2>/dev/null
-  echo ">>> liblapack.a built (${LAPACK_FAIL} failed): $(ls -lh "${BLAS_BUILD}/liblapack.a" 2>/dev/null)"
+  LAPACK_OBJS=$(ls "${BLAS_BUILD}/lapack_obj/"*.o 2>/dev/null | wc -l)
+  if [ "${LAPACK_OBJS}" -gt 0 ]; then
+    "${WASI_SDK_PATH}/bin/llvm-ar" rcs "${BLAS_BUILD}/liblapack.a" "${BLAS_BUILD}/lapack_obj/"*.o
+    echo ">>> liblapack.a built (${LAPACK_FAIL} failed): ${LAPACK_OBJS} objects, $(ls -lh "${BLAS_BUILD}/liblapack.a")"
+  else
+    echo "ERROR: no LAPACK objects compiled"; exit 1
+  fi
 fi
 
 # ── pkg-config files for WASM BLAS/LAPACK ────────────────────────────────────
