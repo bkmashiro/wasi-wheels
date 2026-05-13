@@ -63,8 +63,8 @@ jobs:
           }
           EOF
 
-          # Test app — all imports at top level (required for componentize-py static analysis)
-          cat > /tmp/test_app.py << 'EOF'
+          # Test app — write to wit-test dir so it's importable as 'test_app'
+          cat > /tmp/wit-test/test_app.py << 'EOF'
           import sys
           import regex
           import pydantic_core
@@ -108,9 +108,9 @@ jobs:
       - name: Componentize test app
         run: |
           cd /tmp/wit-test
-          PYTHONPATH=/tmp/wasi-wheels \
+          PYTHONPATH=/tmp/wasi-wheels:. \
             componentize-py -d wit -w wasi-wheels-test \
-            componentize /tmp/test_app -o /tmp/test.wasm
+            componentize test_app -o /tmp/test.wasm
           echo "Component size: $(wc -c < /tmp/test.wasm) bytes"
 
       - name: Run integration test
