@@ -113,21 +113,136 @@ chmod +x "${WRAPPER_DIR}/clang"
 cp "${WRAPPER_DIR}/clang" "${WRAPPER_DIR}/clang++"
 sed -i "s|${WASI_SDK_PATH}/bin/clang\b|${WASI_SDK_PATH}/bin/clang++|g" "${WRAPPER_DIR}/clang++"
 
-# ── Mock gfortran: passes version detection, fails on actual compile ──────────
-# meson requires fortran to be in the cross-file [binaries] section.
-# lapack_lite C sources are pre-generated (no Fortran compilation needed).
+# ── Fake gfortran: converts Fortran→C via f2c, then compiles with WASI clang ──
+# scipy has Fortran sources beyond lapack_lite (linalg, integrate, optimize...).
+# This wrapper is transparent to meson: it accepts gfortran's CLI, uses f2c
+# to transpile .f/.f90 files to C, then cross-compiles with wasi-sdk clang.
 MOCK_BIN="$(mktemp -d)"
-cat > "${MOCK_BIN}/gfortran" << 'GEOF'
+
+# Fetch f2c.h (runtime header for f2c-generated C code)
+F2C_H="${MOCK_BIN}/f2c.h"
+curl -fsSL "https://raw.githubusercontent.com/hoodmane/f2c/master/src/f2c.h" \
+  -o "${F2C_H}" 2>/dev/null || \
+curl -fsSL "https://raw.githubusercontent.com/Reference-LAPACK/lapack/master/LAPACKE/utils/lapacke_utils.h" \
+  -o /dev/null && \
+cat > "${F2C_H}" << 'F2CEOF'
+/* Minimal f2c.h for WASI cross-compilation */
+typedef int integer;
+typedef unsigned int uinteger;
+typedef char *address;
+typedef short int shortint;
+typedef float real;
+typedef double doublereal;
+typedef struct { real r, i; } complex;
+typedef struct { doublereal r, i; } doublecomplex;
+typedef long int logical;
+typedef short int shortlogical;
+typedef char logical1;
+typedef char integer1;
+typedef long int ftnlen;
+typedef long int ftnint;
+#define TRUE_ (1)
+#define FALSE_ (0)
+#define abs(x) ((x) >= 0 ? (x) : -(x))
+#define dabs(x) (fabs(x))
+#define min(a,b) ((a) <= (b) ? (a) : (b))
+#define max(a,b) ((a) >= (b) ? (a) : (b))
+#define dmin(a,b) (min(a,b))
+#define dmax(a,b) (max(a,b))
+extern int s_wsfe(), do_fio(), e_wsfe();
+extern int s_wsle(), e_wsle();
+extern void s_stop(char *, ftnlen);
+extern integer s_cmp(char *, char *, ftnlen, ftnlen);
+extern void s_copy(char *, char *, ftnlen, ftnlen);
+extern doublereal pow_dd(doublereal *, doublereal *);
+extern doublereal pow_di(doublereal *, integer *);
+extern integer pow_ii(integer *, integer *);
+extern doublereal d_sign(doublereal *, doublereal *);
+extern doublereal d_sqrt(doublereal *);
+extern doublereal d_abs(doublereal *);
+extern integer i_nint(real *);
+extern integer i_dnnt(doublereal *);
+F2CEOF
+
+REAL_CLANG="${WASI_SDK_PATH}/bin/clang"
+F2C_BIN="${F2C}"
+
+cat > "${MOCK_BIN}/gfortran" << GEOF
 #!/bin/bash
-for arg in "$@"; do
-  case "$arg" in
-    --version|-dumpversion)
-      echo "GNU Fortran (WASI stub) 13.0.0"
-      exit 0 ;;
+# Fake gfortran: f2c + wasi-sdk clang wrapper
+
+F2C_BIN="${F2C_BIN}"
+REAL_CLANG="${REAL_CLANG}"
+F2C_H="${F2C_H}"
+WASI_SYSROOT="${WASI_SYSROOT}"
+PY_INC="${CROSS_PREFIX}/include/python3.14"
+WASM_TARGET="--target=wasm32-wasip1"
+
+# Version detection
+for a in "\$@"; do
+  case "\$a" in
+    --version|-dumpversion) echo "GNU Fortran (f2c/WASI) 13.0.0"; exit 0 ;;
   esac
 done
-echo "gfortran: WASI does not support Fortran compilation" >&2
-exit 1
+
+# Parse args: separate Fortran files from compiler flags
+COMPILE=0
+OUTPUT=""
+FORTRAN_FILES=()
+PASS_ARGS=()
+
+i=0
+args=("\$@")
+while [ \$i -lt \${#args[@]} ]; do
+  a="\${args[\$i]}"
+  case "\$a" in
+    -c) COMPILE=1 ;;
+    -o) i=\$((i+1)); OUTPUT="\${args[\$i]}" ;;
+    *.f|*.F|*.for|*.FOR|*.f90|*.F90) FORTRAN_FILES+=("\$a") ;;
+    # Drop flags irrelevant/harmful to clang
+    -frecursive|-fno-second-underscore|-fimplicit-none|-ffixed-form|-ffree-form) ;;
+    -fno-underscoring|-funderscoring) ;;
+    -Warray-temporaries|-Wconversion|-Wsurprising) ;;
+    *) PASS_ARGS+=("\$a") ;;
+  esac
+  i=\$((i+1))
+done
+
+if [ \${#FORTRAN_FILES[@]} -eq 0 ]; then
+  # Link-only invocation
+  exec "\${REAL_CLANG}" "\${WASM_TARGET}" --sysroot="\${WASI_SYSROOT}" "\${PASS_ARGS[@]}" \${OUTPUT:+-o "\${OUTPUT}"}
+fi
+
+# Compile: f2c each .f file → .c, then compile .c with WASI clang
+TMPDIR="\$(mktemp -d)"
+trap "rm -rf \$TMPDIR" EXIT
+
+C_FILES=()
+for f in "\${FORTRAN_FILES[@]}"; do
+  base="\$(basename "\${f%.*}")"
+  cp "\$f" "\${TMPDIR}/\${base}.f"
+  (cd "\${TMPDIR}" && "\${F2C_BIN}" -A -a "\${base}.f" 2>/dev/null) || \
+  (cd "\${TMPDIR}" && "\${F2C_BIN}" "\${base}.f" 2>/dev/null) || true
+  if [ -f "\${TMPDIR}/\${base}.c" ]; then
+    C_FILES+=("\${TMPDIR}/\${base}.c")
+  else
+    echo "f2c: failed to convert \$f" >&2
+    exit 1
+  fi
+done
+
+exec "\${REAL_CLANG}" \${WASM_TARGET} \
+  --sysroot="\${WASI_SYSROOT}" \
+  -fPIC \
+  -I"\$(dirname "\${F2C_H}")" \
+  -I"\${PY_INC}" \
+  -D__EMSCRIPTEN__=1 \
+  -Wno-implicit-function-declaration \
+  -Wno-return-type \
+  \${COMPILE:+-c} \
+  "\${PASS_ARGS[@]}" \
+  "\${C_FILES[@]}" \
+  \${OUTPUT:+-o "\${OUTPUT}"}
 GEOF
 chmod +x "${MOCK_BIN}/gfortran"
 
