@@ -134,10 +134,13 @@ jobs:
           tar xzf build/Pillow-wasi.tar.gz   -C /tmp/wasi-smoke
           tar xzf build/tiktoken-wasi.tar.gz -C /tmp/wasi-smoke
 
-          # Install wasm-tools for validation
-          curl -fsSL https://github.com/bytecodealliance/wasm-tools/releases/download/v1.224.0/wasm-tools-v1.224.0-x86_64-linux.tar.gz \
+          # Install wasm-tools for validation (fetch latest release dynamically)
+          WASM_TOOLS_TAG=$(curl -fsSL https://api.github.com/repos/bytecodealliance/wasm-tools/releases/latest | python3 -c "import json,sys; print(json.load(sys.stdin)['tag_name'])")
+          WASM_TOOLS_VER=${WASM_TOOLS_TAG#v}
+          echo "Installing wasm-tools $WASM_TOOLS_TAG"
+          curl -fsSL "https://github.com/bytecodealliance/wasm-tools/releases/download/${WASM_TOOLS_TAG}/wasm-tools-${WASM_TOOLS_VER}-x86_64-linux.tar.gz" \
             | tar xz -C /tmp
-          sudo cp /tmp/wasm-tools-v1.224.0-x86_64-linux/wasm-tools /usr/local/bin/wasm-tools
+          sudo cp "/tmp/wasm-tools-${WASM_TOOLS_VER}-x86_64-linux/wasm-tools" /usr/local/bin/wasm-tools
 
           PASS=0; FAIL=0
           for so in $(find /tmp/wasi-smoke -name "*.so"); do
