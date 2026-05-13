@@ -133,8 +133,11 @@ with open(sys.argv[1]) as fh:
 code = re.sub(r',\s*ftnlen\s+\w+_len', '', code)
 # 2. Remove ftnlen local variable declarations left over after sig removal
 code = re.sub(r'^\s*ftnlen\s+\w+_len;\s*$', '', code, flags=re.MULTILINE)
-# 3. Remove literal (ftnlen)N call-site arguments (always "(ftnlen)1" in LAPACK/BLAS)
-code = re.sub(r',\s*\(ftnlen\)\d+L?', '', code)
+# 3a. Remove explicit-cast form: ", (ftnlen)1"
+code = re.sub(r',\s*\(ftnlen\)\s*\d+L?', '', code)
+# 3b. Remove bare long-literal form: ", 1L" (f2c emits this at call sites for
+#     string literals, e.g. zlatdf.c calling zgecon_("I", ..., 1L))
+code = re.sub(r',\s*1L\b', '', code)
 with open(sys.argv[1], 'w') as fh:
     fh.write(code)
 PYEOF
@@ -301,19 +304,41 @@ fi
 WRAPPER_DIR="$(mktemp -d)"
 cat > "${WRAPPER_DIR}/clang" << 'WEOF'
 #!/bin/bash
-# Flags to strip from both direct CLI and response-file (@...) arguments.
-# We use grep -Exv with a fixed pattern rather than bash case/nameref to avoid
-# bash quoting and scoping edge-cases.
-_BAD_FLAGS='^(-Wl,)?(--start-group|--end-group)$|^-pthread$'
+# Clang wrapper for wasm32-wasip1: strips GNU ld flags wasm-ld doesn't support.
+# Response files (@file) are filtered via Python for reliable handling.
 
 args=()
 for arg in "$@"; do
   if [[ "$arg" == @* ]]; then
-    # meson uses response files for long link commands.  Expand the file and
-    # write a filtered copy — grep handles \r\n line endings naturally.
+    # meson uses response files for long link commands.  Expand the file,
+    # filter bad flags with Python (reliable unicode/encoding handling),
+    # and write a new filtered response file.
     rsp_src="${arg#@}"
     rsp_dst="${rsp_src}.f.rsp"
-    grep -Exv "${_BAD_FLAGS}" "$rsp_src" > "$rsp_dst" 2>/dev/null || :
+    python3 - "$rsp_src" "$rsp_dst" << 'PYEOF'
+import sys
+BAD_EXACT = {
+    '-Wl,--start-group', '-Wl,--end-group',
+    '--start-group', '--end-group',
+    '-pthread',
+}
+src, dst = sys.argv[1], sys.argv[2]
+try:
+    with open(src, errors='replace') as f:
+        lines = f.read().splitlines()
+    kept = []
+    for line in lines:
+        s = line.strip()
+        if s in BAD_EXACT:
+            continue
+        if s.startswith('--version-script='):
+            continue
+        kept.append(line)
+    with open(dst, 'w') as f:
+        f.write('\n'.join(kept) + '\n')
+except Exception:
+    import shutil; shutil.copy(src, dst)
+PYEOF
     args+=("@${rsp_dst}")
   else
     case "$arg" in
