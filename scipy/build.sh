@@ -507,6 +507,7 @@ export CFLAGS="${WASM_TARGET} -fPIC \
   -DNPY_NO_SIGNAL \
   -D_WASI_EMULATED_SIGNAL \
   -DUNDERSCORE_G77 \
+  -DFE_TONEAREST=0 -DFE_TOWARDZERO=1 -DFE_DOWNWARD=2 -DFE_UPWARD=3 \
   -Wno-return-type \
   -fvisibility=default"
 
