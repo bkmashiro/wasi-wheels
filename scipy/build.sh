@@ -522,7 +522,7 @@ export CXXFLAGS="${WASM_TARGET} -fPIC \
   -D__EMSCRIPTEN__=1 \
   -DNPY_NO_SIGNAL \
   -D_WASI_EMULATED_SIGNAL \
-  -fwasm-exceptions \
+  -fno-exceptions \
   -fvisibility=default"
 
 export LDFLAGS="${WASM_TARGET} \
