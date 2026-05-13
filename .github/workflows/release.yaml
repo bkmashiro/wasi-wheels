@@ -123,6 +123,18 @@ jobs:
         shell: bash
         run: make pillow
 
+      - name: Cache scipy wheel
+        id: cache-scipy
+        uses: actions/cache@v4
+        with:
+          path: build/scipy-wasi.tar.gz
+          key: scipy-wasi-cpython-3.14.0-wasi-33-${{ hashFiles('scipy/**') }}
+
+      - name: Build scipy
+        if: steps.cache-scipy.outputs.cache-hit != 'true'
+        shell: bash
+        run: make scipy
+
       - name: Validate Pillow and tiktoken WASM modules
         run: |
           # wasmtime dlopen is not supported for standalone run — instead validate
@@ -203,5 +215,5 @@ jobs:
           gh release create latest *.tar.gz \
             --repo ${{ github.repository }} \
             --title "Development Build" \
-            --notes "Latest WASI wheels built from \`main\` (numpy, pydantic_core, regex, tiktoken, Pillow for CPython 3.14 / wasm32-wasip1)" \
+            --notes "Latest WASI wheels built from \`main\` (numpy, pydantic_core, regex, tiktoken, Pillow, scipy for CPython 3.14 / wasm32-wasip1)" \
             --prerelease
