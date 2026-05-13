@@ -314,6 +314,7 @@ meson setup "${BUILD_DIR}" \
   --prefix="${INSTALL_DIR}" \
   -Dblas=none \
   -Dlapack=none \
+  -Duse-pythran=false \
   -Dpython.install_env=prefix \
   --wipe 2>&1 | tee /tmp/scipy_meson_setup.log
 EXIT=${PIPESTATUS[0]}
