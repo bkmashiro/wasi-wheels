@@ -54,6 +54,7 @@ if [ ! -f "${DEPS_PREFIX}/lib/libjpeg.a" ]; then
       -DCMAKE_C_COMPILER="${WASI_SDK_PATH}/bin/clang" \
       -DCMAKE_C_FLAGS="${WASI_CFLAGS}" \
       -DCMAKE_SYSTEM_NAME=Generic \
+      -DCMAKE_SYSTEM_PROCESSOR=wasm32 \
       -DCMAKE_INSTALL_PREFIX="${DEPS_PREFIX}" \
       -DWITH_SIMD=FALSE \
       -DWITH_JPEG8=1 \
