@@ -119,34 +119,41 @@ jobs:
           echo "Wheels in /tmp/wasi-smoke:"
           ls /tmp/wasi-smoke/
 
+          # Write test scripts to files — CPython WASI doesn't support -c flag
+          cat > /tmp/smoke_pillow.py << 'PYEOF'
+import sys
+sys.path.insert(0, '/wasi-wheels')
+from PIL import Image, __version__ as pil_ver
+img = Image.new('RGB', (8, 8), color=(255, 0, 0))
+assert img.size == (8, 8), f'unexpected size {img.size}'
+print('Pillow', pil_ver, 'OK — Image.new', img.size)
+PYEOF
+
+          cat > /tmp/smoke_tiktoken.py << 'PYEOF'
+import sys
+sys.path.insert(0, '/wasi-wheels')
+import tiktoken._tiktoken as _tt
+print('tiktoken native module OK, CoreBPE:', hasattr(_tt, 'CoreBPE'))
+PYEOF
+
           PASS=0; FAIL=0
 
           run_test() {
-            local label="$1"; shift
+            local label="$1"; local script="$2"
             echo "=== $label ==="
             if wasmtime run \
                 --dir "$CPYTHON_INSTALL"::"$CPYTHON_INSTALL" \
                 --dir /tmp/wasi-smoke::/wasi-wheels \
-                "$PYTHON_WASM" -- "$@" 2>&1; then
+                --dir /tmp::/tmp \
+                "$PYTHON_WASM" -- "/tmp/${script}" 2>&1; then
               echo "[PASS] $label"; PASS=$((PASS+1))
             else
               echo "[FAIL] $label (exit $?)"; FAIL=$((FAIL+1))
             fi
           }
 
-          run_test "Pillow" -c "
-          import sys; sys.path.insert(0, '/wasi-wheels')
-          from PIL import Image, __version__ as pil_ver
-          img = Image.new('RGB', (8, 8), color=(255, 0, 0))
-          assert img.size == (8, 8), f'unexpected size {img.size}'
-          print('Pillow', pil_ver, 'OK — Image.new', img.size)
-          "
-
-          run_test "tiktoken" -c "
-          import sys; sys.path.insert(0, '/wasi-wheels')
-          import tiktoken._tiktoken as _tt
-          print('tiktoken native module OK, CoreBPE:', hasattr(_tt, 'CoreBPE'))
-          "
+          run_test "Pillow"   "smoke_pillow.py"
+          run_test "tiktoken" "smoke_tiktoken.py"
 
           echo ""
           echo "Smoke-test results: $PASS passed, $FAIL failed"
