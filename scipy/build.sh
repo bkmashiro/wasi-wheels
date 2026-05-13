@@ -348,6 +348,8 @@ while [ \$i -lt \${#args[@]} ]; do
     -Warray-temporaries|-Wconversion|-Wsurprising) ;;
     -J*) ;;         # gfortran module output dir — not used by f2c/clang
     -std=legacy|-std=f*|-std=gnu*) ;;  # gfortran Fortran standard flags, unknown to clang
+    -lgfortran|-lquadmath) ;;  # gfortran runtime libs — don't exist for WASI
+    -Wl,--start-group|-Wl,--end-group|--start-group|--end-group) ;;  # GNU ld only, wasm-ld rejects
     *) PASS_ARGS+=("\$a") ;;
   esac
   i=\$((i+1))
