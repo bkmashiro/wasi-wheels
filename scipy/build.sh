@@ -38,6 +38,17 @@ export F2C="${SCRIPT_DIR}/f2c/src/f2c"
 F2C_H="${SCRIPT_DIR}/f2c/src/f2c.h"
 F2C_SRC="${SCRIPT_DIR}/f2c/src"
 
+# Fix f2c.h: #undef complex before its typedef to avoid C99 _Complex macro conflict.
+# C99 defines 'complex' as an alias for '_Complex' (from <complex.h>).  f2c.h does:
+#   typedef struct { real r, i; } complex;
+# which expands to:
+#   typedef struct { real r, i; } _Complex;   ← invalid, silently swallowed
+# → the type 'complex' never actually exists, so anything that uses it
+#   (typedef complex singlecomplex;) also fails.
+# #undef complex first frees the identifier so the struct typedef succeeds.
+sed -i 's/^typedef struct { real r, i; } complex;$/#undef complex\ntypedef struct { real r, i; } complex;/' \
+  "${F2C_H}" 2>/dev/null || true
+
 # ── Build libf2c.a (f2c runtime, WASM) ───────────────────────────────────────
 # f2c-generated C code calls runtime helpers: pow_di, d_sign, s_cat, etc.
 # These live in hoodmane/f2c's libF77/ directory.
@@ -231,27 +242,9 @@ if [ ! -f "${SCIPY_SRC}/.patched" ]; then
   sed -i 's/^void/int/g' scipy/spatial/qhull_misc.h 2>/dev/null || true
   echo "" > scipy/sparse/linalg/_dsolve/SuperLU/SRC/input_error.c 2>/dev/null || true
 
-  # ── SuperLU singlecomplex compat ──────────────────────────────────────────
-  # scipy_slu_config.h is included first in every SuperLU .c file and pulls in
-  # f2c.h, which defines 'complex' as struct { real r, i; } (real = float).
-  # slu_scomplex.h then defines 'singlecomplex' as struct { float r, i; } —
-  # structurally identical but a different C type, causing a redefinition error.
-  # Fix: change slu_scomplex.h to just 'typedef complex singlecomplex;' so
-  # both names refer to exactly the same f2c type.
-  # slu_scomplex.h defines 'singlecomplex' as struct { float r, i; } which
-  # conflicts with f2c.h's 'complex' (same layout, different C type).
-  # Fix: ensure f2c.h is included first in slu_scomplex.h (so 'complex' is
-  # defined), then replace the anonymous struct typedef with 'typedef complex
-  # singlecomplex;' — making both names the same type.
-  SUPERLU_SC="scipy/sparse/linalg/_dsolve/SuperLU/SRC/slu_scomplex.h"
-  if [ -f "${SUPERLU_SC}" ]; then
-    # Inject #include "f2c.h" right after the include guard opening
-    sed -i 's|#define __SUPERLU_SCOMPLEX|#define __SUPERLU_SCOMPLEX\n#include "f2c.h"|' \
-      "${SUPERLU_SC}" 2>/dev/null || true
-    # Replace the struct-based typedef with an alias for f2c's complex type
-    sed -i 's|typedef struct { float r, i; } singlecomplex;|typedef complex singlecomplex;|' \
-      "${SUPERLU_SC}" 2>/dev/null || true
-  fi
+  # Note: slu_scomplex.h's 'typedef struct { float r, i; } singlecomplex;' is
+  # left as-is. Now that f2c.h properly defines 'complex' (via #undef above),
+  # singlecomplex is a distinct but compatible C type — no patch needed here.
 
   cd "${SCRIPT_DIR}"
 
