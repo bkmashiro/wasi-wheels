@@ -522,12 +522,11 @@ export CXXFLAGS="${WASM_TARGET} -fPIC \
   -D__EMSCRIPTEN__=1 \
   -DNPY_NO_SIGNAL \
   -D_WASI_EMULATED_SIGNAL \
-  -fno-exceptions \
+  -fwasm-exceptions \
   -fvisibility=default"
 
 export LDFLAGS="${WASM_TARGET} \
   --sysroot=${WASI_SYSROOT} \
-  -L${WASI_SYSROOT}/lib/wasm32-wasip1/pic \
   -L${WASI_SYSROOT}/lib/wasm32-wasip1 \
   -L${CROSS_PREFIX}/lib \
   -L${BLAS_BUILD} \
@@ -535,6 +534,8 @@ export LDFLAGS="${WASM_TARGET} \
   ${PY_LIB} \
   -Wl,--experimental-pic \
   -Wl,--unresolved-symbols=import-dynamic \
+  -Wl,--allow-undefined \
+  -nostdlib++ \
   -lwasi-emulated-signal \
   -lwasi-emulated-getpid \
   -lwasi-emulated-process-clocks"
