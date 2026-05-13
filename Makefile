@@ -54,7 +54,7 @@ $(OUTPUTS): $(WASI_SDK) $(CPYTHON)
 $(BUILD_DIR)/scipy-wasi.tar.gz: $(WASI_SDK) $(CPYTHON) $(BUILD_DIR)/numpy-wasi.tar.gz
 	@mkdir -p "$(@D)"
 	(cd scipy && CROSS_PREFIX=$(CPYTHON) WASI_SDK_PATH=$(WASI_SDK) bash build.sh)
-	cp -a scipy/build/scipy_install/scipy "$(@D)"
+	cp -a scipy/build/scipy_install/lib/python*/site-packages/scipy "$(@D)"
 	(cd "$(@D)" && tar czf scipy-wasi.tar.gz scipy)
 
 $(BUILD_DIR)/aiohttp-wasi.tar.gz: $(WASI_SDK) $(CPYTHON)
