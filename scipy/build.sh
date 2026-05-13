@@ -401,7 +401,9 @@ HOST_CYTHON="$(which cython)"
 # pybind11 pkgconfig dir (from pip-installed pybind11) — must be computed
 # BEFORE the wasi-cross.ini heredoc that references ${PYBIND11_PC_DIR}.
 PYBIND11_PC_DIR="$(python3.14 -c "import pybind11; import os; print(os.path.join(os.path.dirname(pybind11.__file__), 'share', 'pkgconfig'))" 2>/dev/null || echo "")"
+PYBIND11_INC="$(python3.14 -c "import pybind11; print(pybind11.get_include())" 2>/dev/null || echo "")"
 echo ">>> pybind11 pkgconfig dir: ${PYBIND11_PC_DIR}"
+echo ">>> pybind11 include dir:   ${PYBIND11_INC}"
 
 # Create a pkg-config wrapper for the host (WASM) machine.
 # We point it only at PYBIND11_PC_DIR so:
@@ -515,6 +517,7 @@ export CXXFLAGS="${WASM_TARGET} -fPIC \
   -I${PY_INC} \
   -I${STUB_INC} \
   -I$(dirname "${F2C_H}") \
+  ${PYBIND11_INC:+-I${PYBIND11_INC}} \
   -isystem ${WASI_SYSROOT}/include \
   -D__EMSCRIPTEN__=1 \
   -DNPY_NO_SIGNAL \
