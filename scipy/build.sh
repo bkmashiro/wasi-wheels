@@ -346,6 +346,7 @@ while [ \$i -lt \${#args[@]} ]; do
     -frecursive|-fno-second-underscore|-fimplicit-none|-ffixed-form|-ffree-form) ;;
     -fno-underscoring|-funderscoring) ;;
     -Warray-temporaries|-Wconversion|-Wsurprising) ;;
+    -J*) ;;  # gfortran module output dir — not used by f2c/clang
     *) PASS_ARGS+=("\$a") ;;
   esac
   i=\$((i+1))
