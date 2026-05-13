@@ -446,7 +446,7 @@ export CFLAGS="${WASM_TARGET} -fPIC \
 export CXXFLAGS="${WASM_TARGET} -fPIC \
   -I${PY_INC} \
   -isystem ${WASI_SYSROOT}/include \
-  -fno-exceptions \
+  -fwasm-exceptions \
   -fvisibility=default"
 
 export LDFLAGS="${WASM_TARGET} \
