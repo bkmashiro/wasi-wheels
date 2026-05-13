@@ -43,6 +43,14 @@ jobs:
           echo "Extracted wheels:"
           ls -d */
 
+      - name: Install pure-Python runtime deps
+        run: |
+          # typing_extensions is imported by pydantic_core/__init__.py.
+          # It is pure Python and safe to use from the host install.
+          pip install --target /tmp/wasi-wheels typing_extensions
+          echo "typing_extensions installed:"
+          ls /tmp/wasi-wheels/typing_extensions* 2>/dev/null || true
+
       - name: Fetch WASI WIT dependencies
         run: |
           # Extract wit/ directory from the componentize-py 0.23.0 source tarball on PyPI
