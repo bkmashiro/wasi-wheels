@@ -336,8 +336,8 @@ meson setup "${BUILD_DIR}" \
   --cross-file="${SCRIPT_DIR}/wasi-cross.ini" \
   --native-file="${SCRIPT_DIR}/native.ini" \
   --prefix="${INSTALL_DIR}" \
-  -Dblas=none \
-  -Dlapack=none \
+  -Dblas=auto \
+  -Dlapack=auto \
   -Duse-pythran=false \
   -Dpython.install_env=prefix \
   --wipe 2>&1 | tee /tmp/scipy_meson_setup.log
