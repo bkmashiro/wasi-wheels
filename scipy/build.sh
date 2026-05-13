@@ -301,43 +301,34 @@ fi
 WRAPPER_DIR="$(mktemp -d)"
 cat > "${WRAPPER_DIR}/clang" << 'WEOF'
 #!/bin/bash
-# Filter a list of arguments, writing result into $1 (array name passed by ref).
-_filter_args() {
-  local -n _dest="$1"; shift
-  for arg in "$@"; do
+# Flags to strip from both direct CLI and response-file (@...) arguments.
+# We use grep -Exv with a fixed pattern rather than bash case/nameref to avoid
+# bash quoting and scoping edge-cases.
+_BAD_FLAGS='^(-Wl,)?(--start-group|--end-group)$|^-pthread$'
+
+args=()
+for arg in "$@"; do
+  if [[ "$arg" == @* ]]; then
+    # meson uses response files for long link commands.  Expand the file and
+    # write a filtered copy — grep handles \r\n line endings naturally.
+    rsp_src="${arg#@}"
+    rsp_dst="${rsp_src}.f.rsp"
+    grep -Exv "${_BAD_FLAGS}" "$rsp_src" > "$rsp_dst" 2>/dev/null || :
+    args+=("@${rsp_dst}")
+  else
     case "$arg" in
       # GNU ld group flags — wasm-ld rejects them
       -Wl,--start-group|-Wl,--end-group|--start-group|--end-group) ;;
-      # Version-script linker flag — wasm-ld doesn't support it
-      --version-script=*|-Wl,--version-script=*) ;;
       # POSIX threads flag — not meaningful for wasm32-wasip1
       -pthread) ;;
       # Drop host Python include dirs — meson's py3.dependency() injects the
       # host Python's x86_64 headers, which fail LONG_BIT/SIZEOF_LONG checks
       # when compiling for wasm32. Our WASI Python include is prepended below.
+      # NOTE: do NOT filter --version-script here; let meson's probe fail
+      # naturally so meson knows not to add it to real link commands.
       -I@HOST_PY_INC@) ;;
-      *) _dest+=("$arg") ;;
+      *) args+=("$arg") ;;
     esac
-  done
-}
-
-args=()
-for arg in "$@"; do
-  if [[ "$arg" == @* ]]; then
-    # meson uses response files (@/path/to/args.rsp) for long link commands.
-    # Expand the file, filter each line, write a new filtered response file
-    # alongside the original so we don't exceed PATH_MAX.
-    rsp_src="${arg#@}"
-    rsp_dst="${rsp_src}.filtered.rsp"
-    : > "$rsp_dst"
-    while IFS= read -r line || [[ -n "$line" ]]; do
-      filtered_line=()
-      _filter_args filtered_line "$line"
-      [[ ${#filtered_line[@]} -gt 0 ]] && printf '%s\n' "${filtered_line[@]}" >> "$rsp_dst"
-    done < "$rsp_src"
-    args+=("@${rsp_dst}")
-  else
-    _filter_args args "$arg"
   fi
 done
 # Prepend WASI Python include so it wins over any host Python include meson injects
@@ -405,7 +396,6 @@ while [ \$i -lt \${#args[@]} ]; do
     -std=legacy|-std=f*|-std=gnu*) ;;  # gfortran Fortran standard flags, unknown to clang
     -lgfortran|-lquadmath) ;;  # gfortran runtime libs — don't exist for WASI
     -Wl,--start-group|-Wl,--end-group|--start-group|--end-group) ;;  # GNU ld only, wasm-ld rejects
-    --version-script=*|-Wl,--version-script=*) ;;  # wasm-ld doesn't support version scripts
     -pthread) ;;  # not meaningful for wasm32-wasip1
     *) PASS_ARGS+=("\$a") ;;
   esac
@@ -581,8 +571,33 @@ export CXXFLAGS="${WASM_TARGET} -fPIC \
   -D__EMSCRIPTEN__=1 \
   -DNPY_NO_SIGNAL \
   -D_WASI_EMULATED_SIGNAL \
-  -fno-exceptions \
+  -fwasm-exceptions \
   -fvisibility=default"
+
+# ── __wasm_lpad_context stub ──────────────────────────────────────────────────
+# -fwasm-exceptions (native WASM EH proposal) generates TLS-relative accesses to
+# __wasm_lpad_context (the landing-pad context variable).  In WASM shared libs,
+# TLS relocations cannot be left as dynamic imports (unlike regular undefined
+# symbols which --allow-undefined handles).  Solution: define the variable in a
+# small stub .o and link it into every extension module via LDFLAGS.
+# Each .so gets its own TLS copy — cross-library EH doesn't apply here (Python
+# catches C++ exceptions at the module boundary via Python's own mechanism).
+LPAD_STUB="${SCRIPT_DIR}/build/wasm_lpad_context.o"
+if [ ! -f "${LPAD_STUB}" ]; then
+  echo ">>> Building __wasm_lpad_context stub"
+  "${WASI_SDK_PATH}/bin/clang" \
+    --target=wasm32-wasip1 --sysroot="${WASI_SYSROOT}" \
+    -fPIC -fwasm-exceptions \
+    -x c -c -o "${LPAD_STUB}" - << 'CEOF'
+/* Provide __wasm_lpad_context for -fwasm-exceptions in WASM shared libs.
+   TLS relocations (R_WASM_MEMORY_ADDR_TLS_SLEB) cannot be undefined — each
+   shared library must define the symbol locally. */
+#ifdef __wasm__
+__attribute__((visibility("default")))
+__thread void *__wasm_lpad_context;
+#endif
+CEOF
+fi
 
 export LDFLAGS="${WASM_TARGET} \
   --sysroot=${WASI_SYSROOT} \
@@ -591,6 +606,7 @@ export LDFLAGS="${WASM_TARGET} \
   -L${BLAS_BUILD} \
   -shared \
   ${PY_LIB} \
+  ${LPAD_STUB} \
   -Wl,--experimental-pic \
   -Wl,--unresolved-symbols=import-dynamic \
   -Wl,--allow-undefined \
