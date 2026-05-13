@@ -104,7 +104,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/tiktoken-wasi.tar.gz
-          key: tiktoken-wasi-cpython-3.14.0-wasi-33-${{ hashFiles('tiktoken/**') }}
+          key: tiktoken-wasi-with-ext-cpython-3.14.0-wasi-33-${{ hashFiles('tiktoken/**') }}
 
       - name: Build tiktoken
         if: steps.cache-tiktoken.outputs.cache-hit != 'true'

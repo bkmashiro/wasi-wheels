@@ -123,7 +123,8 @@ $(BUILD_DIR)/tiktoken-wasi.tar.gz: $(WASI_SDK) $(CPYTHON)
 	@mkdir -p "$(@D)"
 	(cd tiktoken && PYO3_CROSS_LIB_DIR=$(PYO3_CROSS_LIB_DIR) CROSS_PREFIX=$(CPYTHON) SYSCONFIG=$(SYSCONFIG) WASI_SDK_PATH=$(WASI_SDK) bash build.sh)
 	cp -a tiktoken/src/build/lib.*/tiktoken "$(@D)"
-	(cd "$(@D)" && tar czf tiktoken-wasi.tar.gz tiktoken)
+	cp -a tiktoken/src/build/lib.*/tiktoken_ext "$(@D)"
+	(cd "$(@D)" && tar czf tiktoken-wasi.tar.gz tiktoken tiktoken_ext)
 
 $(BUILD_DIR)/wrapt-wasi.tar.gz: $(WASI_SDK) $(CPYTHON)
 	@mkdir -p "$(@D)"

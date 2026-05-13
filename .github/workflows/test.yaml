@@ -55,9 +55,9 @@ jobs:
       - name: Install pure-Python runtime deps
         run: |
           # typing_extensions is imported by pydantic_core/__init__.py.
-          # tiktoken_ext is the namespace package with BPE vocab data — pure Python.
-          # Both are safe to install from host Python since they contain no native code.
-          pip install --target /tmp/wasi-wheels typing_extensions tiktoken_ext
+          # It is pure Python and safe to use from the host install.
+          # tiktoken_ext is bundled inside tiktoken-wasi.tar.gz (pure Python BPE vocab).
+          pip install --target /tmp/wasi-wheels typing_extensions
           echo "=== /tmp/wasi-wheels top-level contents ==="
           ls /tmp/wasi-wheels/
           echo "=== typing_extensions verification (host Python) ==="
