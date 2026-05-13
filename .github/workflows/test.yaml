@@ -36,12 +36,21 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mkdir -p /tmp/wasi-wheels
-          cd /tmp/wasi-wheels
+          mkdir -p /tmp/wasi-wheels-all /tmp/wasi-wheels
+          cd /tmp/wasi-wheels-all
           gh release download latest --repo ${{ github.repository }} --pattern "*.tar.gz"
-          for f in *.tar.gz; do tar xzf "$f"; done
-          echo "Extracted wheels:"
-          ls -d */
+          echo "Downloaded tarballs:"
+          ls *.tar.gz
+          # Only extract the three packages used by the test app into /tmp/wasi-wheels.
+          # Pillow and tiktoken have WASM symbols (e.g. __wasi_proc_exit) that
+          # componentize-py cannot resolve when it scans all .so files in -p dirs.
+          for pkg in numpy pydantic_core regex; do
+            tarball="${pkg}-wasi.tar.gz"
+            [ -f "$tarball" ] || tarball="$(ls ${pkg}*.tar.gz 2>/dev/null | head -1)"
+            tar xzf "$tarball" -C /tmp/wasi-wheels
+          done
+          echo "Extracted packages for componentize-py:"
+          ls /tmp/wasi-wheels/
 
       - name: Install pure-Python runtime deps
         run: |
