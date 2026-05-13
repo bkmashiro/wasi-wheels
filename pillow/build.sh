@@ -113,11 +113,11 @@ export DISABLE_PLATFORM_GUESSING=1
 export PYTHONPATH="${CROSS_PREFIX}/lib/python3.14"
 export _PYTHON_SYSCONFIGDATA_NAME=_sysconfigdata__wasi_wasm32-wasi
 
-DISABLE_FLAGS="--disable-jpeg --disable-tiff --disable-webp --disable-jpeg2000 \
-  --disable-imagequant --disable-xcb --disable-freetype \
-  --disable-lcms --disable-raqm"
-
-python3 setup.py build_ext --plat-name wasm32-wasip1 $DISABLE_FLAGS
-python3 setup.py bdist_wheel --plat-name wasm32-wasip1 $DISABLE_FLAGS
+# DISABLE_PLATFORM_GUESSING=1 (set above) is sufficient: Pillow will only find
+# libraries whose ROOT env var is explicitly set.  We only set ZLIB_ROOT, so
+# all other optional features (jpeg, tiff, webp, freetype …) are auto-skipped.
+# The --disable-X CLI flags were removed/broken in newer setuptools versions.
+python3 setup.py build_ext --plat-name wasm32-wasip1
+python3 setup.py bdist_wheel --plat-name wasm32-wasip1
 
 wheel unpack --dest build dist/pillow-*.whl 2>/dev/null || wheel unpack --dest build dist/Pillow-*.whl
