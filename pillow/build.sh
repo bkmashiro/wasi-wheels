@@ -58,6 +58,7 @@ if [ ! -f "${DEPS_PREFIX}/lib/libjpeg.a" ]; then
       -DCMAKE_INSTALL_PREFIX="${DEPS_PREFIX}" \
       -DWITH_SIMD=FALSE \
       -DWITH_JPEG8=1 \
+      -DWITH_TURBOJPEG=FALSE \
       -DENABLE_SHARED=FALSE \
       -DENABLE_STATIC=TRUE \
       -DCMAKE_BUILD_TYPE=Release
