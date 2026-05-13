@@ -380,6 +380,7 @@ exec "\${REAL_CLANG}" \${WASM_TARGET} \
   -I"\$(dirname "\${F2C_H}")" \
   -I"\${PY_INC}" \
   -D__EMSCRIPTEN__=1 \
+  -D_WASI_EMULATED_SIGNAL \
   -Wno-implicit-function-declaration \
   -Wno-return-type \
   \${COMPILE:+-c} \
@@ -512,6 +513,9 @@ export CXXFLAGS="${WASM_TARGET} -fPIC \
   -I${STUB_INC} \
   -I$(dirname "${F2C_H}") \
   -isystem ${WASI_SYSROOT}/include \
+  -D__EMSCRIPTEN__=1 \
+  -DNPY_NO_SIGNAL \
+  -D_WASI_EMULATED_SIGNAL \
   -fwasm-exceptions \
   -fvisibility=default"
 
