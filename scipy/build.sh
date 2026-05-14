@@ -805,6 +805,126 @@ if count == 0:
         print(f'    {f}')
 PYEOF
 
+# ── Build _scipy_blas_lapack_compat: WASM module providing BLAS/LAPACK/f2c/stubs ──
+# componentize-py's linker requires ALL env-imported symbols to be resolved by
+# some bundled WASM module.  scipy extension modules import BLAS/LAPACK/f2c
+# symbols via --unresolved-symbols=import-dynamic.  This compat module exports
+# them all by linking with --whole-archive against the static libraries, plus
+# C stubs for C++ exception ABI, numpy complex math, pthread, and f2c I/O.
+echo ">>> Building _scipy_blas_lapack_compat module"
+SCIPY_SITE_PKG=$(find "${INSTALL_DIR}" -maxdepth 6 -type d -name "scipy" | grep "site-packages" | head -1)
+if [ -z "${SCIPY_SITE_PKG}" ]; then
+  echo "ERROR: could not find scipy site-packages dir in ${INSTALL_DIR}"
+else
+  COMPAT_C="${BLAS_BUILD}/scipy_compat_main.c"
+  cat > "${COMPAT_C}" << 'CEOF'
+#include <Python.h>
+#include <math.h>
+#include <stdint.h>
+#include <string.h>
+#include <stdlib.h>
+
+/* ── C++ ABI stubs ────────────────────────────────────────────────────────── */
+/* scipy special/interpolate modules are compiled with C++ and import these.
+ * componentize-py cannot link against libc++ for WASI, so we provide no-op /
+ * trap stubs. Error paths (throw/rethrow) are unreachable in normal operation. */
+void *__cxa_allocate_exception(size_t size) { return malloc(size + 128); }
+void  __cxa_free_exception(void *p)         { if (p) free(p); }
+void *__cxa_begin_catch(void *p)            { return p; }
+void  __cxa_end_catch(void)                 {}
+void *__cxa_init_primary_exception(void *obj, void *ti, void (*dest)(void *)) { return obj; }
+__attribute__((noreturn)) void __cxa_throw(void *e, void *ti, void (*d)(void *))  { __builtin_trap(); }
+__attribute__((noreturn)) void __cxa_rethrow(void)                                { __builtin_trap(); }
+int   _Unwind_CallPersonality(int v)        { (void)v; return 0; }
+
+/* ── pthread stub ─────────────────────────────────────────────────────────── */
+int pthread_atfork(void (*pre)(void), void (*par)(void), void (*chi)(void)) {
+    (void)pre; (void)par; (void)chi; return 0;
+}
+
+/* ── numpy complex math ───────────────────────────────────────────────────── */
+/* scipy/special imports npy_cabs, npy_clog, npy_cpow, npy_csqrt from env.
+ * In WASM PIC the complex arg is passed as a pointer to a (real, imag) double pair. */
+double npy_cabs(double *z) {
+    return sqrt(z[0]*z[0] + z[1]*z[1]);
+}
+void npy_clog(double *z, double *out) {
+    double r = z[0], i = z[1];
+    out[0] = 0.5 * log(r*r + i*i);
+    out[1] = atan2(i, r);
+}
+void npy_cpow(double *base, double *exponent, double *out) {
+    double r = base[0], i = base[1];
+    double er = exponent[0], ei = exponent[1];
+    double logmod = 0.5 * log(r*r + i*i);
+    double arg = atan2(i, r);
+    double real_part = er * logmod - ei * arg;
+    double imag_part = er * arg    + ei * logmod;
+    double e = exp(real_part);
+    out[0] = e * cos(imag_part);
+    out[1] = e * sin(imag_part);
+}
+void npy_csqrt(double *z, double *out) {
+    double r = z[0], i = z[1];
+    double mag = sqrt(r*r + i*i);
+    out[0] = sqrt((mag + r) * 0.5);
+    out[1] = (i >= 0.0 ? 1.0 : -1.0) * sqrt(fabs(mag - r) * 0.5);
+}
+
+/* ── f2c I/O stubs (weak — overridden by libf2c.a strong symbols) ─────────── */
+/* libf2c.a is linked with --whole-archive and provides the real implementations.
+ * These weak stubs ensure the link succeeds even if libf2c is incomplete. */
+__attribute__((weak)) int s_wsle(int *u)                   { (void)u; return 0; }
+__attribute__((weak)) int e_wsle(void)                     { return 0; }
+__attribute__((weak)) int do_lio(int *t, int *n, char *p, int l) { (void)t;(void)n;(void)p;(void)l; return 0; }
+__attribute__((weak)) int s_wsfe(int *u)                   { (void)u; return 0; }
+__attribute__((weak)) int e_wsfe(void)                     { return 0; }
+__attribute__((weak)) int do_fio(int *n, char *p, int l)   { (void)n;(void)p;(void)l; return 0; }
+__attribute__((weak)) int s_wsfi(int *u)                   { (void)u; return 0; }
+__attribute__((weak)) int e_wsfi(void)                     { return 0; }
+__attribute__((weak)) int f_open(void *p)                  { (void)p; return 0; }
+__attribute__((weak)) int f_clos(void *p)                  { (void)p; return 0; }
+
+/* ── Python module init ───────────────────────────────────────────────────── */
+/* componentize-py only bundles .so files that have a PyInit_* function.      */
+static PyMethodDef _scipy_compat_methods[] = { {NULL, NULL, 0, NULL} };
+static struct PyModuleDef _scipy_compat_module = {
+    PyModuleDef_HEAD_INIT, "_scipy_blas_lapack_compat", NULL, -1, _scipy_compat_methods
+};
+PyMODINIT_FUNC PyInit__scipy_blas_lapack_compat(void) {
+    return PyModule_Create(&_scipy_compat_module);
+}
+CEOF
+
+  COMPAT_OUT="${SCIPY_SITE_PKG}/_scipy_blas_lapack_compat.cpython-314-wasm32-wasi.so"
+  "${WASI_SDK_PATH}/bin/clang" \
+    --target=wasm32-wasip1 --sysroot="${WASI_SYSROOT}" \
+    -fPIC \
+    -I"${CROSS_PREFIX}/include/python3.14" \
+    -I"$(dirname "${F2C_H}")" \
+    -D__EMSCRIPTEN__=1 \
+    "${COMPAT_C}" \
+    -shared \
+    -Wl,--whole-archive \
+      "${BLAS_BUILD}/liblapack.a" \
+      "${BLAS_BUILD}/libblas.a" \
+      "${BLAS_BUILD}/libf2c.a" \
+    -Wl,--no-whole-archive \
+    "${CROSS_PREFIX}/lib/libpython3.14.so" \
+    -Wl,--experimental-pic \
+    -Wl,--allow-undefined \
+    -Wl,--unresolved-symbols=import-dynamic \
+    -o "${COMPAT_OUT}" && \
+  echo ">>> Built _scipy_blas_lapack_compat: $(wc -c < "${COMPAT_OUT}") bytes" || \
+  echo "WARNING: _scipy_blas_lapack_compat build failed (scipy will likely fail in componentize-py)"
+
+  if [ -f "${COMPAT_OUT}" ]; then
+    echo ">>> Key exports from compat module:"
+    "${WASI_SDK_PATH}/bin/llvm-nm" --defined-only "${COMPAT_OUT}" 2>/dev/null | \
+      grep -E "(dlamch_|dnrm2_|do_lio|npy_cabs|__cxa_throw|PyInit)" | head -15 || true
+  fi
+fi
+
 echo ">>> scipy build complete"
 echo "Installed to: ${INSTALL_DIR}"
 ls "${INSTALL_DIR}" 2>/dev/null || true
