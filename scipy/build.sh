@@ -56,6 +56,34 @@ BLAS_BUILD="${SCRIPT_DIR}/build/blas_lapack"
 PKG_CONFIG_DIR="${SCRIPT_DIR}/build/pkgconfig"
 mkdir -p "${BLAS_BUILD}" "${PKG_CONFIG_DIR}"
 
+# ── ftnlen stripping script (written once to a file, used by f2c_compile) ────
+# Writing to a file avoids stdin-based heredoc-inside-function issues and lets
+# us add more patterns without worrying about bash quoting.
+FTNLEN_STRIP_PY="${SCRIPT_DIR}/build/strip_ftnlen.py"
+cat > "${FTNLEN_STRIP_PY}" << 'PYEOF'
+import re, sys
+
+with open(sys.argv[1]) as fh:
+    code = fh.read()
+
+# 1. Remove ftnlen params from function signatures: ", ftnlen uplo_len"
+code = re.sub(r',\s*ftnlen\s+\w+', '', code)
+
+# 2. Remove ftnlen local variable declarations: "ftnlen uplo_len;"
+code = re.sub(r'^\s*ftnlen\s+\w+;\s*\n', '', code, flags=re.MULTILINE)
+
+# 3. Remove call-site char-length args in ALL forms f2c may generate:
+#    (a) explicit cast:  ", (ftnlen)1"  or  ", (ftnlen)1L"
+code = re.sub(r',\s*\(ftnlen\)\s*\d+[Ll]?', '', code)
+#    (b) bare long literal: ", 1L" or ", 1l"
+code = re.sub(r',\s*1[Ll]\b', '', code)
+#    (c) (integer) cast form used by some f2c versions: ", (integer)1"
+code = re.sub(r',\s*\(integer\)\s*\d+[Ll]?', '', code)
+
+with open(sys.argv[1], 'w') as fh:
+    fh.write(code)
+PYEOF
+
 if [ ! -f "${BLAS_BUILD}/libf2c.a" ]; then
   echo ">>> Building libf2c.a (f2c runtime) for WASM"
   # hoodmane/f2c is a compiler-only repo; the runtime is a separate netlib package.
@@ -120,27 +148,10 @@ f2c_compile() {
   # scipy's Cython bindings (cython_lapack.c, cython_blas.c) were generated without
   # these extra arguments — they call LAPACK/BLAS subroutines using the standard
   # N-argument signature.  WASM's strict type system makes this a hard linker error
-  # (vs a silent ABI mismatch on x86-64).  We strip ftnlen parameters from:
-  #   1. Function signatures:  ", ftnlen uplo_len"
-  #   2. Local declarations:   "ftnlen uplo_len;"
-  #   3. Call sites inside generated code: ", (ftnlen)1"  (f2c always emits this form
-  #      for literal CHARACTER arguments, which are always length 1 in LAPACK/BLAS)
-  python3 - "${tmpdir}/${base}.c" << 'PYEOF'
-import re, sys
-with open(sys.argv[1]) as fh:
-    code = fh.read()
-# 1. Remove ftnlen params from function signatures (may be several per function)
-code = re.sub(r',\s*ftnlen\s+\w+_len', '', code)
-# 2. Remove ftnlen local variable declarations left over after sig removal
-code = re.sub(r'^\s*ftnlen\s+\w+_len;\s*$', '', code, flags=re.MULTILINE)
-# 3a. Remove explicit-cast form: ", (ftnlen)1"
-code = re.sub(r',\s*\(ftnlen\)\s*\d+L?', '', code)
-# 3b. Remove bare long-literal form: ", 1L" (f2c emits this at call sites for
-#     string literals, e.g. zlatdf.c calling zgecon_("I", ..., 1L))
-code = re.sub(r',\s*1L\b', '', code)
-with open(sys.argv[1], 'w') as fh:
-    fh.write(code)
-PYEOF
+  # (vs a silent ABI mismatch on x86-64).
+  # FTNLEN_STRIP_PY is written once before f2c_compile is defined (avoids
+  # stdin-based heredoc issues when the function is called inside a loop).
+  python3 "${FTNLEN_STRIP_PY}" "${tmpdir}/${base}.c"
 
   "${WASI_SDK_PATH}/bin/clang" \
     --target=wasm32-wasip1 --sysroot="${WASI_SYSROOT}" \
@@ -310,35 +321,18 @@ cat > "${WRAPPER_DIR}/clang" << 'WEOF'
 args=()
 for arg in "$@"; do
   if [[ "$arg" == @* ]]; then
-    # meson uses response files for long link commands.  Expand the file,
-    # filter bad flags with Python (reliable unicode/encoding handling),
-    # and write a new filtered response file.
+    # meson uses response files for long link commands.  Filter bad flags with
+    # sed (reliable, no heredoc-inside-script issues, always available).
     rsp_src="${arg#@}"
     rsp_dst="${rsp_src}.f.rsp"
-    python3 - "$rsp_src" "$rsp_dst" << 'PYEOF'
-import sys
-BAD_EXACT = {
-    '-Wl,--start-group', '-Wl,--end-group',
-    '--start-group', '--end-group',
-    '-pthread',
-}
-src, dst = sys.argv[1], sys.argv[2]
-try:
-    with open(src, errors='replace') as f:
-        lines = f.read().splitlines()
-    kept = []
-    for line in lines:
-        s = line.strip()
-        if s in BAD_EXACT:
-            continue
-        if s.startswith('--version-script='):
-            continue
-        kept.append(line)
-    with open(dst, 'w') as f:
-        f.write('\n'.join(kept) + '\n')
-except Exception:
-    import shutil; shutil.copy(src, dst)
-PYEOF
+    sed \
+      -e '/^--start-group$/d' \
+      -e '/^--end-group$/d' \
+      -e '/^-Wl,--start-group$/d' \
+      -e '/^-Wl,--end-group$/d' \
+      -e '/^-pthread$/d' \
+      -e '/^--version-script=/d' \
+      "$rsp_src" > "$rsp_dst" 2>/dev/null || cp "$rsp_src" "$rsp_dst"
     args+=("@${rsp_dst}")
   else
     case "$arg" in
