@@ -675,33 +675,14 @@ export CXXFLAGS="${WASM_TARGET} -fPIC \
   -D__EMSCRIPTEN__=1 \
   -DNPY_NO_SIGNAL \
   -D_WASI_EMULATED_SIGNAL \
-  -fwasm-exceptions \
+  -fno-exceptions \
   -fvisibility=default"
-
-# ── __wasm_lpad_context stub ──────────────────────────────────────────────────
-# -fwasm-exceptions (native WASM EH proposal) generates TLS-relative accesses to
-# __wasm_lpad_context (the landing-pad context variable).  In WASM shared libs,
-# TLS relocations cannot be left as dynamic imports (unlike regular undefined
-# symbols which --allow-undefined handles).  Solution: define the variable in a
-# small stub .o and link it into every extension module via LDFLAGS.
-# Each .so gets its own TLS copy — cross-library EH doesn't apply here (Python
-# catches C++ exceptions at the module boundary via Python's own mechanism).
-LPAD_STUB="${SCRIPT_DIR}/build/wasm_lpad_context.o"
-if [ ! -f "${LPAD_STUB}" ]; then
-  echo ">>> Building __wasm_lpad_context stub"
-  "${WASI_SDK_PATH}/bin/clang" \
-    --target=wasm32-wasip1 --sysroot="${WASI_SYSROOT}" \
-    -fPIC -fwasm-exceptions \
-    -x c -c -o "${LPAD_STUB}" - << 'CEOF'
-/* Provide __wasm_lpad_context for -fwasm-exceptions in WASM shared libs.
-   TLS relocations (R_WASM_MEMORY_ADDR_TLS_SLEB) cannot be undefined — each
-   shared library must define the symbol locally. */
-#ifdef __wasm__
-__attribute__((visibility("default")))
-__thread void *__wasm_lpad_context;
-#endif
-CEOF
-fi
+# NOTE: We use -fno-exceptions instead of -fwasm-exceptions.
+# -fwasm-exceptions (WASM EH proposal) generates __wasm_lpad_context exports
+# in every .so, which componentize-py/wit-component cannot handle (it causes
+# "multiple libraries export _start" panic in the linker).  C++ exceptions are
+# not needed for scipy's numerical kernels — Cython uses Python-API error codes,
+# and the rare C++ exception paths become std::terminate() which is acceptable.
 
 export LDFLAGS="${WASM_TARGET} \
   --sysroot=${WASI_SYSROOT} \
@@ -710,7 +691,6 @@ export LDFLAGS="${WASM_TARGET} \
   -L${BLAS_BUILD} \
   -shared \
   ${PY_LIB} \
-  ${LPAD_STUB} \
   -Wl,--experimental-pic \
   -Wl,--unresolved-symbols=import-dynamic \
   -Wl,--allow-undefined \
@@ -766,6 +746,27 @@ fi
 echo ">>> ninja install"
 PYTHONPATH="${CROSS_PREFIX}/lib/python3.14" \
   ninja -C "${BUILD_DIR}" install
+
+echo ">>> Rename .so files to WASI suffix"
+# Meson queries the HOST Python (x86-64) for EXT_SUFFIX, producing files named
+# .cpython-314-x86_64-linux-gnu.so.  componentize-py only bundles files ending
+# in .cpython-314-wasm32-wasi.so (or .abi3.so) — it ignores the x86-64 suffix.
+# Rename everything so Python and componentize-py can find the WASM modules.
+HOST_EXT_SUFFIX="$(python3.14 -c "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))" 2>/dev/null || echo "")"
+WASI_EXT_SUFFIX=".cpython-314-wasm32-wasi.so"
+if [ -n "${HOST_EXT_SUFFIX}" ] && [ "${HOST_EXT_SUFFIX}" != "${WASI_EXT_SUFFIX}" ]; then
+  echo ">>> Renaming: '${HOST_EXT_SUFFIX}' → '${WASI_EXT_SUFFIX}'"
+  COUNT=0
+  find "${INSTALL_DIR}" -name "*${HOST_EXT_SUFFIX}" | while IFS= read -r f; do
+    new="${f%${HOST_EXT_SUFFIX}}${WASI_EXT_SUFFIX}"
+    mv "$f" "$new"
+    COUNT=$((COUNT+1))
+  done
+  RENAMED=$(find "${INSTALL_DIR}" -name "*${WASI_EXT_SUFFIX}" | wc -l)
+  echo ">>> Renamed ${RENAMED} .so files to WASI suffix"
+else
+  echo ">>> EXT_SUFFIX already correct or could not detect: '${HOST_EXT_SUFFIX}'"
+fi
 
 echo ">>> scipy build complete"
 echo "Installed to: ${INSTALL_DIR}"
