@@ -192,8 +192,8 @@ export LDFLAGS="--target=wasm32-wasip1 \
   -L${CROSS_PREFIX}/lib \
   -L${WRAPPER_DIR} \
   ${CROSS_PREFIX}/lib/libpython3.14.so \
+  -shared \
   -Wl,--experimental-pic \
-  -Wl,--shared \
   -Wl,--unresolved-symbols=import-dynamic \
   -lwasi_compat"
 
