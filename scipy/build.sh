@@ -498,7 +498,9 @@ while [ \$i -lt \${#args[@]} ]; do
     -std=legacy|-std=f*|-std=gnu*) ;;  # gfortran Fortran standard flags, unknown to clang
     -lgfortran|-lquadmath) ;;  # gfortran runtime libs — don't exist for WASI
     -Wl,--start-group|-Wl,--end-group|--start-group|--end-group) ;;  # GNU ld only, wasm-ld rejects
+    -Wl,--version-script=*|--version-script=*) ;;  # GNU ld only, wasm-ld rejects
     -pthread) ;;  # not meaningful for wasm32-wasip1
+    -ffloat-store|-fno-math-errno|-fstack-arrays|-fcheck=*|-fbounds-check) ;;  # GCC-only, clang rejects
     *) PASS_ARGS+=("\$a") ;;
   esac
   i=\$((i+1))
