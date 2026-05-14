@@ -44,7 +44,7 @@ jobs:
           # Extract all packages including Pillow.
           # Pillow's __wasi_proc_exit is now stubbed at build time (-> __builtin_trap),
           # so componentize-py should no longer see it as an unresolved import.
-          for pkg in numpy pydantic_core regex tiktoken Pillow; do
+          for pkg in numpy pydantic_core regex tiktoken Pillow scipy; do
             tarball="${pkg}-wasi.tar.gz"
             [ -f "$tarball" ] || tarball="$(ls ${pkg}*.tar.gz 2>/dev/null | head -1)"
             tar xzf "$tarball" -C /tmp/wasi-wheels
@@ -99,6 +99,10 @@ jobs:
           from pydantic_core import core_schema, SchemaValidator
           from PIL import Image
           import io
+          import scipy
+          import scipy.linalg
+          import scipy.special
+          import scipy.interpolate
           import wit_world
           from wit_world import exports
 
@@ -141,6 +145,17 @@ jobs:
                   img.save(buf, format='PNG')
                   assert buf.tell() > 0, "Pillow PNG encode produced empty output"
                   results['Pillow'] = f'v{Image.__version__} Image.new + PNG encode OK'
+
+                  # scipy — basic linalg and special functions
+                  A = np.array([[1.0, 2.0], [3.0, 4.0]])
+                  det = scipy.linalg.det(A)
+                  assert abs(det - (-2.0)) < 1e-10, f"scipy.linalg.det failed: {det}"
+                  inv = scipy.linalg.inv(A)
+                  ident = A @ inv
+                  assert abs(ident[0,0] - 1.0) < 1e-10, f"scipy.linalg.inv failed: {ident}"
+                  gamma_val = scipy.special.gamma(5.0)
+                  assert abs(gamma_val - 24.0) < 1e-6, f"scipy.special.gamma(5) failed: {gamma_val}"
+                  results['scipy'] = f'v{scipy.__version__} linalg.det + linalg.inv + special.gamma OK'
 
                   print("\n=== WASI Wheels Integration Test ===")
                   for pkg, result in results.items():
