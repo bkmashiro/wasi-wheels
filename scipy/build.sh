@@ -922,6 +922,10 @@ CEOF
   if [ -f "${COMPAT_OUT}" ]; then
     echo ">>> Key exports from compat module:"
     COMPAT_EXPORTS="$("${WASI_SDK_PATH}/bin/llvm-nm" --defined-only "${COMPAT_OUT}" 2>/dev/null || true)"
+    if [ -z "${COMPAT_EXPORTS}" ]; then
+      echo "ERROR: failed to read compat exports (llvm-nm returned no symbols)."
+      exit 1
+    fi
     echo "${COMPAT_EXPORTS}" | grep -E "(dlamch_|dnrm2_|do_lio|npy_cabs|__cxa_throw|pthread_atfork|PyInit)" | head -15 || true
     REQUIRED_EXPORTS=(
       dlamch_
@@ -932,17 +936,17 @@ CEOF
       pthread_atfork
       PyInit__scipy_blas_lapack_compat
     )
-    MISSING_EXPORTS=0
+    MISSING_EXPORTS=false
     for sym in "${REQUIRED_EXPORTS[@]}"; do
       case "${COMPAT_EXPORTS}" in
         *"${sym}"*) ;;
         *)
           echo "ERROR: compat module missing export: ${sym}"
-          MISSING_EXPORTS=1
+          MISSING_EXPORTS=true
           ;;
       esac
     done
-    if [ "${MISSING_EXPORTS}" -ne 0 ]; then
+    if [ "${MISSING_EXPORTS}" = true ]; then
       echo "ERROR: compat module exports incomplete; check BLAS/LAPACK/f2c build."
       exit 1
     fi
