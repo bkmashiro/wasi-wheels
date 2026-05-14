@@ -69,6 +69,29 @@ jobs:
           print('has Sentinel:', hasattr(te, 'Sentinel'))
           " 2>&1
 
+      - name: Patch numpy version for scipy compatibility
+        run: |
+          # scipy 1.17.0 requires numpy >= 1.26.4 but the WASI numpy wheel is
+          # built from numpy 1.26.0b1 source.  The 1.26.x patch release APIs are
+          # identical; the version check is purely cosmetic.  Patch version.py so
+          # scipy's runtime guard does not raise ImportError.
+          python3 - << 'EOF'
+          import glob, os
+          target = "1.26.4"
+          old = "1.26.0b1"
+          patched = 0
+          for f in glob.glob('/tmp/wasi-wheels/numpy/version.py'):
+              src = open(f).read()
+              dst = src.replace(f'version = "{old}"', f'version = "{target}"') \
+                       .replace(f'full_version = version', f'full_version = "{target}"') \
+                       .replace(f'__version__ = version', f'__version__ = "{target}"')
+              if dst != src:
+                  open(f, 'w').write(dst)
+                  print(f'Patched {f}: {old!r} -> {target!r}')
+                  patched += 1
+          print(f'Patched {patched} file(s)')
+          EOF
+
       - name: Fetch WASI WIT dependencies
         run: |
           # Extract wit/ directory from the componentize-py 0.23.0 source tarball on PyPI
