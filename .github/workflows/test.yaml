@@ -163,6 +163,13 @@ jobs:
                   print("\nAll packages OK!")
           EOF
 
+      - name: Show WASM extension modules (what componentize-py will bundle)
+        run: |
+          echo "=== WASM extension modules in /tmp/wasi-wheels ==="
+          find /tmp/wasi-wheels -name "*.cpython-314-wasm32-wasi.so" -o -name "*.abi3.so" | sort
+          echo "=== Total count ==="
+          find /tmp/wasi-wheels \( -name "*.cpython-314-wasm32-wasi.so" -o -name "*.abi3.so" \) | wc -l
+
       - name: Componentize test app
         run: |
           cd /tmp/wit-test
