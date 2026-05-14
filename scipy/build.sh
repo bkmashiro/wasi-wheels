@@ -771,22 +771,39 @@ echo ">>> Rename .so files to WASI suffix"
 # Meson queries the HOST Python (x86-64) for EXT_SUFFIX, producing files named
 # .cpython-314-x86_64-linux-gnu.so.  componentize-py only bundles files ending
 # in .cpython-314-wasm32-wasi.so (or .abi3.so) — it ignores the x86-64 suffix.
-# Rename everything so Python and componentize-py can find the WASM modules.
-HOST_EXT_SUFFIX="$(python3.14 -c "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))" 2>/dev/null || echo "")"
-WASI_EXT_SUFFIX=".cpython-314-wasm32-wasi.so"
-if [ -n "${HOST_EXT_SUFFIX}" ] && [ "${HOST_EXT_SUFFIX}" != "${WASI_EXT_SUFFIX}" ]; then
-  echo ">>> Renaming: '${HOST_EXT_SUFFIX}' → '${WASI_EXT_SUFFIX}'"
-  COUNT=0
-  find "${INSTALL_DIR}" -name "*${HOST_EXT_SUFFIX}" | while IFS= read -r f; do
-    new="${f%${HOST_EXT_SUFFIX}}${WASI_EXT_SUFFIX}"
-    mv "$f" "$new"
-    COUNT=$((COUNT+1))
-  done
-  RENAMED=$(find "${INSTALL_DIR}" -name "*${WASI_EXT_SUFFIX}" | wc -l)
-  echo ">>> Renamed ${RENAMED} .so files to WASI suffix"
-else
-  echo ">>> EXT_SUFFIX already correct or could not detect: '${HOST_EXT_SUFFIX}'"
-fi
+# Use Python to robustly rename: match any .cpython-NNN-*-linux*.so pattern.
+export INSTALL_DIR  # expose to the Python subprocess
+python3 - << 'PYEOF'
+import os, re, sys
+
+install_dir = os.environ['INSTALL_DIR']
+wasi_suffix = '.cpython-314-wasm32-wasi.so'
+# Match any .cpython-NNN-ARCH.so that is NOT already the WASI suffix
+cpython_suffix_re = re.compile(r'^(.+?)(\.cpython-\d+[^.]*\.so)$')
+
+count = 0
+for root, dirs, files in os.walk(install_dir):
+    for f in files:
+        # Skip files that are already correctly named
+        if f.endswith(wasi_suffix):
+            continue
+        m = cpython_suffix_re.match(f)
+        if m:
+            src = os.path.join(root, f)
+            dst = os.path.join(root, m.group(1) + wasi_suffix)
+            os.rename(src, dst)
+            print(f'  renamed: {f} -> {os.path.basename(dst)}')
+            count += 1
+
+print(f'>>> Renamed {count} .so files to WASI suffix ({wasi_suffix})')
+if count == 0:
+    # Check what .so files exist (diagnostic)
+    all_so = [f for root, _, files in os.walk(install_dir)
+              for f in files if f.endswith('.so')]
+    print(f'  WARNING: no files renamed. Found .so files: {len(all_so)}')
+    for f in all_so[:10]:
+        print(f'    {f}')
+PYEOF
 
 echo ">>> scipy build complete"
 echo "Installed to: ${INSTALL_DIR}"
