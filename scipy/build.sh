@@ -675,14 +675,33 @@ export CXXFLAGS="${WASM_TARGET} -fPIC \
   -D__EMSCRIPTEN__=1 \
   -DNPY_NO_SIGNAL \
   -D_WASI_EMULATED_SIGNAL \
-  -fno-exceptions \
+  -fwasm-exceptions \
   -fvisibility=default"
-# NOTE: We use -fno-exceptions instead of -fwasm-exceptions.
-# -fwasm-exceptions (WASM EH proposal) generates __wasm_lpad_context exports
-# in every .so, which componentize-py/wit-component cannot handle (it causes
-# "multiple libraries export _start" panic in the linker).  C++ exceptions are
-# not needed for scipy's numerical kernels — Cython uses Python-API error codes,
-# and the rare C++ exception paths become std::terminate() which is acceptable.
+
+# ── __wasm_lpad_context stub (hidden visibility) ─────────────────────────────
+# -fwasm-exceptions generates TLS accesses to __wasm_lpad_context.
+# In WASM shared libs, TLS relocations cannot be left as undefined imports, so
+# we provide a local definition via a stub object.
+# CRITICAL: use visibility("hidden") so __wasm_lpad_context is NOT exported
+# from each .so. componentize-py's wit-component linker can't handle 105 modules
+# all exporting __wasm_lpad_context — it triggers "multiple libraries export _start".
+# Hidden: each .so gets its own private per-module TLS copy, not visible externally.
+LPAD_STUB="${SCRIPT_DIR}/build/wasm_lpad_context.o"
+if [ ! -f "${LPAD_STUB}" ]; then
+  echo ">>> Building __wasm_lpad_context stub (hidden visibility)"
+  "${WASI_SDK_PATH}/bin/clang" \
+    --target=wasm32-wasip1 --sysroot="${WASI_SYSROOT}" \
+    -fPIC -fwasm-exceptions \
+    -x c -c -o "${LPAD_STUB}" - << 'CEOF'
+/* Provide __wasm_lpad_context for -fwasm-exceptions in WASM shared libs.
+   Hidden visibility: each .so gets its own private TLS copy, not exported.
+   This prevents componentize-py's linker from seeing duplicate global exports. */
+#ifdef __wasm__
+__attribute__((visibility("hidden")))
+__thread void *__wasm_lpad_context;
+#endif
+CEOF
+fi
 
 export LDFLAGS="${WASM_TARGET} \
   --sysroot=${WASI_SYSROOT} \
@@ -691,6 +710,7 @@ export LDFLAGS="${WASM_TARGET} \
   -L${BLAS_BUILD} \
   -shared \
   ${PY_LIB} \
+  ${LPAD_STUB} \
   -Wl,--experimental-pic \
   -Wl,--unresolved-symbols=import-dynamic \
   -Wl,--allow-undefined \
