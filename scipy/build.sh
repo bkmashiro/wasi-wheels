@@ -54,12 +54,13 @@ sed -i 's/^typedef struct { real r, i; } complex;$/#undef complex\ntypedef struc
 # These live in hoodmane/f2c's libF77/ directory.
 BLAS_BUILD="${SCRIPT_DIR}/build/blas_lapack"
 PKG_CONFIG_DIR="${SCRIPT_DIR}/build/pkgconfig"
-mkdir -p "${BLAS_BUILD}" "${PKG_CONFIG_DIR}"
+BUILD_DIR="${SCRIPT_DIR}/build"
+mkdir -p "${BLAS_BUILD}" "${PKG_CONFIG_DIR}" "${BUILD_DIR}"
 
 # ── ftnlen stripping script (written once to a file, used by f2c_compile) ────
 # Writing to a file avoids stdin-based heredoc-inside-function issues and lets
 # us add more patterns without worrying about bash quoting.
-FTNLEN_STRIP_PY="${SCRIPT_DIR}/build/strip_ftnlen.py"
+FTNLEN_STRIP_PY="${BUILD_DIR}/strip_ftnlen.py"
 cat > "${FTNLEN_STRIP_PY}" << 'PYEOF'
 import re, sys
 
@@ -89,6 +90,46 @@ code = re.sub(r',\s*\w+_len\b', '', code)
 
 with open(sys.argv[1], 'w') as fh:
     fh.write(code)
+PYEOF
+
+# ── Response-file filter script (used by the clang wrapper) ──────────────────
+# wasm-ld/clang don't support GNU ld flags (--start-group/--end-group, -pthread)
+# that meson injects from Python's sysconfig.  This script reads the response
+# file, drops bad flags, and writes a filtered response file for the wrapper to
+# pass to the real clang.
+FILTER_RSP_PY="${BUILD_DIR}/filter_rsp.py"
+cat > "${FILTER_RSP_PY}" << 'PYEOF'
+import sys, os
+
+src = sys.argv[1]   # input .rsp file
+dst = sys.argv[2]   # output filtered .rsp file
+host_py_inc = sys.argv[3] if len(sys.argv) > 3 else ''
+
+BAD_EXACT = {
+    '--start-group', '--end-group',
+    '-Wl,--start-group', '-Wl,--end-group',
+    '-pthread',
+}
+
+with open(src) as f:
+    lines = f.read().splitlines()
+
+out = []
+for line in lines:
+    # Trim whitespace and surrounding double-quotes
+    arg = line.strip().strip('"')
+    if not arg:
+        continue
+    if arg in BAD_EXACT:
+        continue
+    if arg.startswith('--version-script='):
+        continue
+    if host_py_inc and arg == f'-I{host_py_inc}':
+        continue
+    out.append(arg)
+
+with open(dst, 'w') as f:
+    f.write('\n'.join(out) + ('\n' if out else ''))
 PYEOF
 
 if [ ! -f "${BLAS_BUILD}/libf2c.a" ]; then
@@ -158,7 +199,10 @@ f2c_compile() {
   # (vs a silent ABI mismatch on x86-64).
   # FTNLEN_STRIP_PY is written once before f2c_compile is defined (avoids
   # stdin-based heredoc issues when the function is called inside a loop).
-  python3 "${FTNLEN_STRIP_PY}" "${tmpdir}/${base}.c"
+  python3 "${FTNLEN_STRIP_PY}" "${tmpdir}/${base}.c" || true
+  # Belt-and-suspenders: remove any residual (ftnlen)N call-site args Python missed.
+  # f2c generates exactly ", (ftnlen)1" for CHARACTER literal lengths.
+  sed -i -E 's/,[ \t]*\(ftnlen\)[0-9]+//g' "${tmpdir}/${base}.c" 2>/dev/null || true
 
   "${WASI_SDK_PATH}/bin/clang" \
     --target=wasm32-wasip1 --sysroot="${WASI_SYSROOT}" \
@@ -340,18 +384,12 @@ _drop_arg() {
 args=()
 for arg in "$@"; do
   if [[ "$arg" == @* ]]; then
-    # Expand response file line-by-line, applying the same filter as direct args.
-    # meson writes one argument per line; we strip, unquote, then filter.
-    rsp_file="${arg#@}"
-    while IFS= read -r rsp_arg || [[ -n "$rsp_arg" ]]; do
-      # Trim leading/trailing whitespace
-      rsp_arg="${rsp_arg#"${rsp_arg%%[![:space:]]*}"}"
-      rsp_arg="${rsp_arg%"${rsp_arg##*[![:space:]]}"}"
-      # Strip surrounding double-quotes if present
-      [[ "$rsp_arg" == '"'*'"' ]] && rsp_arg="${rsp_arg:1:${#rsp_arg}-2}"
-      _drop_arg "$rsp_arg" || continue
-      args+=("$rsp_arg")
-    done < "$rsp_file"
+    # Expand response file via Python helper — avoids all bash quoting/expansion
+    # edge cases and reliably handles quoted args, whitespace, and bad flags.
+    rsp_src="${arg#@}"
+    rsp_dst="${rsp_src}.filtered.rsp"
+    python3 "@FILTER_RSP_PY@" "$rsp_src" "$rsp_dst" "@HOST_PY_INC@"
+    args+=("@${rsp_dst}")
   else
     _drop_arg "$arg" || continue
     args+=("$arg")
@@ -365,6 +403,7 @@ WASI_PY_INC="${CROSS_PREFIX}/include/python3.14"
 sed -i "s|@REAL_CLANG@|${WASI_SDK_PATH}/bin/clang|g" "${WRAPPER_DIR}/clang"
 sed -i "s|@HOST_PY_INC@|${HOST_PY_INC}|g" "${WRAPPER_DIR}/clang"
 sed -i "s|@WASI_PY_INC@|${WASI_PY_INC}|g" "${WRAPPER_DIR}/clang"
+sed -i "s|@FILTER_RSP_PY@|${FILTER_RSP_PY}|g" "${WRAPPER_DIR}/clang"
 chmod +x "${WRAPPER_DIR}/clang"
 cp "${WRAPPER_DIR}/clang" "${WRAPPER_DIR}/clang++"
 sed -i "s|${WASI_SDK_PATH}/bin/clang\b|${WASI_SDK_PATH}/bin/clang++|g" "${WRAPPER_DIR}/clang++"
