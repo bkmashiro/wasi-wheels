@@ -72,13 +72,20 @@ code = re.sub(r',\s*ftnlen\s+\w+', '', code)
 # 2. Remove ftnlen local variable declarations: "ftnlen uplo_len;"
 code = re.sub(r'^\s*ftnlen\s+\w+;\s*\n', '', code, flags=re.MULTILINE)
 
-# 3. Remove call-site char-length args in ALL forms f2c may generate:
-#    (a) explicit cast:  ", (ftnlen)1"  or  ", (ftnlen)1L"
-code = re.sub(r',\s*\(ftnlen\)\s*\d+[Ll]?', '', code)
+# 3. Remove call-site char-length args — ALL forms f2c may generate.
+#    f2c appends hidden length args at the END of CHARACTER argument call sites.
+#    Patterns observed across f2c versions:
+#    (a) explicit ftnlen cast with any expression: ", (ftnlen)1", ", (ftnlen)c__1",
+#        ", (ftnlen)norm_len"  — use \w+ to match digits, vars, consts
+code = re.sub(r',\s*\(ftnlen\)\s*\w+', '', code)
 #    (b) bare long literal: ", 1L" or ", 1l"
 code = re.sub(r',\s*1[Ll]\b', '', code)
-#    (c) (integer) cast form used by some f2c versions: ", (integer)1"
-code = re.sub(r',\s*\(integer\)\s*\d+[Ll]?', '', code)
+#    (c) (integer) cast form: ", (integer)1", ", (integer)c__1"
+code = re.sub(r',\s*\(integer\)\s*\w+', '', code)
+#    (d) bare ftnlen variable names at call sites: ", norm_len", ", trans_len"
+#        These are variables whose _declarations_ were removed above (step 2) but
+#        still appear as call-site arguments in nested subroutine calls.
+code = re.sub(r',\s*\w+_len\b', '', code)
 
 with open(sys.argv[1], 'w') as fh:
     fh.write(code)
@@ -316,38 +323,38 @@ WRAPPER_DIR="$(mktemp -d)"
 cat > "${WRAPPER_DIR}/clang" << 'WEOF'
 #!/bin/bash
 # Clang wrapper for wasm32-wasip1: strips GNU ld flags wasm-ld doesn't support.
-# Response files (@file) are filtered via Python for reliable handling.
+# Response files (@file) are expanded inline so bash's case statement does the
+# filtering — no sed/Python/temp-file needed, works regardless of line format.
+
+# Shared filter: drop one arg; return 0 to keep, 1 to drop.
+_drop_arg() {
+  case "$1" in
+    ''|--start-group|--end-group|-Wl,--start-group|-Wl,--end-group) return 1 ;;
+    -pthread) return 1 ;;
+    --version-script=*) return 1 ;;
+    -I@HOST_PY_INC@) return 1 ;;
+    *) return 0 ;;
+  esac
+}
 
 args=()
 for arg in "$@"; do
   if [[ "$arg" == @* ]]; then
-    # meson uses response files for long link commands.  Filter bad flags with
-    # sed (reliable, no heredoc-inside-script issues, always available).
-    rsp_src="${arg#@}"
-    rsp_dst="${rsp_src}.f.rsp"
-    sed \
-      -e '/^--start-group$/d' \
-      -e '/^--end-group$/d' \
-      -e '/^-Wl,--start-group$/d' \
-      -e '/^-Wl,--end-group$/d' \
-      -e '/^-pthread$/d' \
-      -e '/^--version-script=/d' \
-      "$rsp_src" > "$rsp_dst" 2>/dev/null || cp "$rsp_src" "$rsp_dst"
-    args+=("@${rsp_dst}")
+    # Expand response file line-by-line, applying the same filter as direct args.
+    # meson writes one argument per line; we strip, unquote, then filter.
+    rsp_file="${arg#@}"
+    while IFS= read -r rsp_arg || [[ -n "$rsp_arg" ]]; do
+      # Trim leading/trailing whitespace
+      rsp_arg="${rsp_arg#"${rsp_arg%%[![:space:]]*}"}"
+      rsp_arg="${rsp_arg%"${rsp_arg##*[![:space:]]}"}"
+      # Strip surrounding double-quotes if present
+      [[ "$rsp_arg" == '"'*'"' ]] && rsp_arg="${rsp_arg:1:${#rsp_arg}-2}"
+      _drop_arg "$rsp_arg" || continue
+      args+=("$rsp_arg")
+    done < "$rsp_file"
   else
-    case "$arg" in
-      # GNU ld group flags — wasm-ld rejects them
-      -Wl,--start-group|-Wl,--end-group|--start-group|--end-group) ;;
-      # POSIX threads flag — not meaningful for wasm32-wasip1
-      -pthread) ;;
-      # Drop host Python include dirs — meson's py3.dependency() injects the
-      # host Python's x86_64 headers, which fail LONG_BIT/SIZEOF_LONG checks
-      # when compiling for wasm32. Our WASI Python include is prepended below.
-      # NOTE: do NOT filter --version-script here; let meson's probe fail
-      # naturally so meson knows not to add it to real link commands.
-      -I@HOST_PY_INC@) ;;
-      *) args+=("$arg") ;;
-    esac
+    _drop_arg "$arg" || continue
+    args+=("$arg")
   fi
 done
 # Prepend WASI Python include so it wins over any host Python include meson injects
