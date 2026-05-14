@@ -32,6 +32,30 @@ pip install \
 if [ ! -f f2c/src/f2c ]; then
   echo ">>> Building f2c (host tool)"
   [ -d f2c ] || git clone https://github.com/hoodmane/f2c.git --depth 1
+
+  # Patch f2c: suppress hidden ftnlen CHARACTER-length args.
+  # scipy's Cython bindings (cython_lapack.c, cython_blas.c) were generated
+  # WITHOUT these extra args; WASM's strict type checker makes any signature
+  # mismatch a hard link error.  Inject "return 0;" at the top of
+  # should_add_ftnlen() in putpcc.c so f2c never adds ftnlen to function
+  # signatures OR call sites — the definitive fix vs. post-hoc regex stripping.
+  python3 - << 'FPATCH'
+import re
+fname = 'f2c/src/putpcc.c'
+with open(fname) as f:
+    src = f.read()
+patched = re.sub(
+    r'(should_add_ftnlen[^{]+\{)',
+    r'\1\n    return 0; /* WASM: scipy Cython bindings have no ftnlen args */',
+    src
+)
+if patched == src:
+    raise RuntimeError('PATCH FAILED: could not locate should_add_ftnlen in ' + fname)
+with open(fname, 'w') as f:
+    f.write(patched)
+print('Patched f2c/src/putpcc.c: should_add_ftnlen always returns 0')
+FPATCH
+
   (cd f2c/src && cp makefile.u makefile && sed -i "s/gram.c:/gram.c1:/" makefile && make -j"$(nproc)")
 fi
 export F2C="${SCRIPT_DIR}/f2c/src/f2c"
@@ -384,11 +408,25 @@ _drop_arg() {
 args=()
 for arg in "$@"; do
   if [[ "$arg" == @* ]]; then
-    # Expand response file via Python helper — avoids all bash quoting/expansion
-    # edge cases and reliably handles quoted args, whitespace, and bad flags.
+    # Filter response file: strip GNU ld-only flags wasm-ld rejects.
+    # Using sed (not Python) avoids PATH/venv availability issues in the
+    # subprocess environment where this wrapper runs.
     rsp_src="${arg#@}"
     rsp_dst="${rsp_src}.filtered.rsp"
-    python3 "@FILTER_RSP_PY@" "$rsp_src" "$rsp_dst" "@HOST_PY_INC@"
+    sed \
+        -e '/^--start-group$/d' \
+        -e '/^--end-group$/d' \
+        -e '/^-Wl,--start-group$/d' \
+        -e '/^-Wl,--end-group$/d' \
+        -e '/^"--start-group"$/d' \
+        -e '/^"--end-group"$/d' \
+        -e '/^"-Wl,--start-group"$/d' \
+        -e '/^"-Wl,--end-group"$/d' \
+        -e '/^-pthread$/d' \
+        -e '/^"-pthread"$/d' \
+        -e '/^--version-script=/d' \
+        -e '/^"--version-script=/d' \
+        "$rsp_src" > "$rsp_dst" 2>/dev/null || cp "$rsp_src" "$rsp_dst"
     args+=("@${rsp_dst}")
   else
     _drop_arg "$arg" || continue
@@ -403,7 +441,6 @@ WASI_PY_INC="${CROSS_PREFIX}/include/python3.14"
 sed -i "s|@REAL_CLANG@|${WASI_SDK_PATH}/bin/clang|g" "${WRAPPER_DIR}/clang"
 sed -i "s|@HOST_PY_INC@|${HOST_PY_INC}|g" "${WRAPPER_DIR}/clang"
 sed -i "s|@WASI_PY_INC@|${WASI_PY_INC}|g" "${WRAPPER_DIR}/clang"
-sed -i "s|@FILTER_RSP_PY@|${FILTER_RSP_PY}|g" "${WRAPPER_DIR}/clang"
 chmod +x "${WRAPPER_DIR}/clang"
 cp "${WRAPPER_DIR}/clang" "${WRAPPER_DIR}/clang++"
 sed -i "s|${WASI_SDK_PATH}/bin/clang\b|${WASI_SDK_PATH}/bin/clang++|g" "${WRAPPER_DIR}/clang++"
