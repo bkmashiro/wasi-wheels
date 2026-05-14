@@ -391,15 +391,16 @@ WRAPPER_DIR="$(mktemp -d)"
 cat > "${WRAPPER_DIR}/clang" << 'WEOF'
 #!/bin/bash
 # Clang wrapper for wasm32-wasip1: strips GNU ld flags wasm-ld doesn't support.
-# Response files (@file) are expanded inline using _drop_arg — no sed/Python/
-# temp-files, works regardless of line format (quoted, unquoted, CRLF).
+# Handles both direct args and response files (@file).
+# ninja writes rsp content as a single space-separated line, so we use
+# 'read -ra' (word-split each line) then emit a one-per-line filtered rsp.
 
 # Shared filter: drop one arg; return 0 to keep, 1 to drop.
 _drop_arg() {
   case "$1" in
     ''|--start-group|--end-group|-Wl,--start-group|-Wl,--end-group) return 1 ;;
     -pthread) return 1 ;;
-    --version-script=*) return 1 ;;
+    --version-script=*|-Wl,--version-script=*) return 1 ;;
     -I@HOST_PY_INC@) return 1 ;;
     *) return 0 ;;
   esac
@@ -408,21 +409,24 @@ _drop_arg() {
 args=()
 for arg in "$@"; do
   if [[ "$arg" == @* ]]; then
-    # Expand response file inline: read each line, strip quotes, apply _drop_arg.
-    # This is more reliable than sed — uses the same _drop_arg already proven to
-    # work for direct args, handles CRLF, quoted args, and missing-file gracefully.
+    # Filter response file.
+    # ninja writes rsp content as ONE long space-separated line (not one-per-line).
+    # 'read -ra _words' splits each line on whitespace into an array, handling
+    # both the one-long-line format and the traditional one-arg-per-line format.
+    # We write a filtered one-per-line rsp so clang/wasm-ld can parse it cleanly.
     rsp_src="${arg#@}"
     if [[ -r "$rsp_src" ]]; then
-      while IFS= read -r _rline || [[ -n "$_rline" ]]; do
-        _rline="${_rline%$'\r'}"          # strip CR (CRLF safety)
-        [[ -z "$_rline" ]] && continue   # skip blank lines
-        # Strip surrounding double-quotes (meson sometimes quotes args in rsp files)
-        if [[ "$_rline" == '"'*'"' ]]; then
-          _rline="${_rline:1:${#_rline}-2}"
-        fi
-        _drop_arg "$_rline" || continue
-        args+=("$_rline")
+      rsp_dst="${rsp_src}.filtered"
+      rsp_out=()
+      while read -ra _words || [[ ${#_words[@]} -gt 0 ]]; do
+        for _w in "${_words[@]}"; do
+          [[ -z "$_w" ]] && continue
+          _drop_arg "$_w" || continue
+          rsp_out+=("$_w")
+        done
       done < "$rsp_src"
+      printf '%s\n' "${rsp_out[@]}" > "$rsp_dst"
+      args+=("@${rsp_dst}")
     fi
   else
     _drop_arg "$arg" || continue
