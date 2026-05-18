@@ -93,6 +93,12 @@ export LDCXXSHARED="$(pwd)/fake_cxx.sh"
 
 pip install cython==3.0.12 setuptools==71.1.0
 
+# Clean stale build artifacts so setup.py re-links ALL modules through fake_cxx.
+# Without this, setup.py finds cached .so placeholders from a previous build and
+# skips re-linking modules that are already "up-to-date", causing fake_cxx to be
+# called for only a subset of extensions.
+rm -rf src/build/
+
 # Build numpy — the fake_cxx intercepts all -shared link calls
 ( cd src && python3 setup.py build --disable-optimization -j 4 )
 
