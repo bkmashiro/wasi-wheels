@@ -27,44 +27,42 @@ export NPY_DISABLE_SVML=1
 export NPY_BLAS_ORDER=
 export NPY_LAPACK_ORDER=
 
-# Create a fake CXX wrapper that:
-#   - When called as a compiler (no -shared): behaves normally
-#   - When called as a linker (-shared): creates an empty .so and archives .o to .a
+# Create a fake CXX/LDSHARED wrapper that:
+#   - When called as a compiler (output is NOT .so): behaves normally
+#   - When called as a linker (output IS .so): creates an empty .so and archives .o to .a
+#
+# NOTE: numpy distutils does NOT pass -shared as an argument when calling $LDSHARED.
+# Instead, -shared is baked into the LDSHARED variable itself. So we detect
+# shared-link mode by checking if the output filename ends in .so.
 cat > fake_cxx.sh <<'FAKECXX_EOF'
 #!/bin/bash
-# fake_cxx.sh — wraps clang++ to intercept -shared link calls during numpy build.
-# For -shared calls: create empty .so placeholder and archive .o files into .a
+# fake_cxx.sh — wraps clang++ to intercept shared-link calls during numpy build.
+# Detects shared-link mode by output filename (ends in .so), NOT by -shared flag,
+# because numpy distutils puts -shared in LDSHARED itself, not in the arguments.
+# For .so output: create empty .so placeholder and archive .o files into .a
 # For everything else: pass through to real clang++.
 set -eou pipefail
 
-HAS_SHARED=0
 output=""
 objects=()
-other_args=()
 
 i=1
 while [[ $i -le $# ]]; do
     arg="${!i}"
     case "$arg" in
-        -shared) HAS_SHARED=1 ;;
         -o) i=$((i+1)); output="${!i}" ;;
         *.o) objects+=("$arg") ;;
-        *) other_args+=("$arg") ;;
     esac
     i=$((i+1))
 done
 
-if [[ $HAS_SHARED -eq 0 ]]; then
-    # Not a link step — compile normally
+# Check if output is a shared library
+if [[ -z "$output" ]] || [[ "$output" != *.so && "$output" != *.so.* ]]; then
+    # Not a shared-library link step — compile or link normally
     exec "${REAL_CXX}" "$@"
 fi
 
 # Shared link step — create archive instead
-if [[ -z "$output" ]]; then
-    echo "fake_cxx: no -o output specified for -shared build" >&2
-    exit 1
-fi
-
 # Derive .a path from .so path (strip .cpython-*.so suffix)
 archive="${output%%.cpython-*.so}.a"
 if [[ "$archive" == "$output" ]]; then
@@ -99,7 +97,7 @@ pip install cython==3.0.12 setuptools==71.1.0
 # called for only a subset of extensions.
 rm -rf src/build/
 
-# Build numpy — the fake_cxx intercepts all -shared link calls
+# Build numpy — the fake_cxx intercepts all shared-link calls by detecting .so output
 ( cd src && python3 setup.py build --disable-optimization -j 4 )
 
 # Collect pure Python and make build-static directory
