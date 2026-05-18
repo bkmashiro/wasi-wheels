@@ -92,11 +92,20 @@ $(BUILD_DIR)/numpy-static-wasi.tar.gz: $(WASI_SDK) $(CPYTHON)
 
 $(BUILD_DIR)/cpython-3.14-wasi.tar.gz: $(WASI_SDK) $(CPYTHON)
 	@mkdir -p "$(@D)"
-	# Package libpython3.14.a, headers, and stdlib for downstream consumers
-	mkdir -p "$(@D)/cpython-3.14-wasi"
+	# Package libpython3.14.a, headers, stdlib, and bundled static libs for downstream consumers
+	mkdir -p "$(@D)/cpython-3.14-wasi/extra-libs"
 	cp $(CPYTHON)/lib/libpython3.14.a "$(@D)/cpython-3.14-wasi/"
 	cp -a $(CPYTHON)/include/python3.14 "$(@D)/cpython-3.14-wasi/include/"
 	cp -a $(CPYTHON)/lib/python3.14 "$(@D)/cpython-3.14-wasi/lib/"
+	# Include bundled static libraries needed to link libpython3.14.a (decimal, Hacl, expat)
+	cp $(BUILD_DIR)/cpython-wasi/Modules/_decimal/libmpdec/libmpdec.a "$(@D)/cpython-3.14-wasi/extra-libs/"
+	cp $(BUILD_DIR)/cpython-wasi/Modules/expat/libexpat.a "$(@D)/cpython-3.14-wasi/extra-libs/"
+	cp $(BUILD_DIR)/cpython-wasi/Modules/_hacl/libHacl_Hash_SHA2.a "$(@D)/cpython-3.14-wasi/extra-libs/"
+	cp $(BUILD_DIR)/cpython-wasi/Modules/_hacl/libHacl_Hash_MD5.a "$(@D)/cpython-3.14-wasi/extra-libs/"
+	cp $(BUILD_DIR)/cpython-wasi/Modules/_hacl/libHacl_Hash_SHA1.a "$(@D)/cpython-3.14-wasi/extra-libs/"
+	cp $(BUILD_DIR)/cpython-wasi/Modules/_hacl/libHacl_Hash_SHA3.a "$(@D)/cpython-3.14-wasi/extra-libs/"
+	cp $(BUILD_DIR)/cpython-wasi/Modules/_hacl/libHacl_Hash_BLAKE2.a "$(@D)/cpython-3.14-wasi/extra-libs/"
+	cp $(BUILD_DIR)/cpython-wasi/Modules/_hacl/libHacl_HMAC.a "$(@D)/cpython-3.14-wasi/extra-libs/"
 	(cd "$(@D)" && tar czf cpython-3.14-wasi.tar.gz cpython-3.14-wasi)
 	rm -rf "$(@D)/cpython-3.14-wasi"
 
