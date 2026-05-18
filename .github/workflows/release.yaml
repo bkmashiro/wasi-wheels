@@ -147,28 +147,6 @@ jobs:
         shell: bash
         run: make pillow
 
-      - name: Cache scipy wheel
-        id: cache-scipy
-        uses: actions/cache@v4
-        with:
-          path: build/scipy-wasi.tar.gz
-          key: scipy-wasi-cpython-3.14.0-wasi-33-${{ hashFiles('scipy/**') }}
-
-      - name: Build scipy
-        if: steps.cache-scipy.outputs.cache-hit != 'true'
-        shell: bash
-        run: make scipy
-
-      - name: Dump scipy build logs (on failure)
-        if: failure()
-        run: |
-          echo "=== meson setup log ==="
-          cat /tmp/scipy_meson_setup.log 2>/dev/null || echo "(not found)"
-          echo "=== meson-log ==="
-          cat scipy/build/_meson/meson-logs/meson-log.txt 2>/dev/null || echo "(not found)"
-          echo "=== ninja log ==="
-          cat /tmp/scipy_ninja.log 2>/dev/null || echo "(not found)"
-
       - name: Validate Pillow and tiktoken WASM modules
         run: |
           # wasmtime dlopen is not supported for standalone run — instead validate
@@ -249,5 +227,5 @@ jobs:
           gh release create latest *.tar.gz \
             --repo ${{ github.repository }} \
             --title "Development Build" \
-            --notes "Latest WASI wheels built from \`main\` (numpy, numpy-static, pydantic_core, regex, tiktoken, Pillow, scipy for CPython 3.14 / wasm32-wasip1; plus cpython-3.14-wasi.tar.gz with libpython3.14.a + headers + stdlib)" \
+            --notes "Latest WASI wheels built from \`main\` (numpy, numpy-static, pydantic_core, regex, tiktoken, Pillow for CPython 3.14 / wasm32-wasip1; plus cpython-3.14-wasi.tar.gz with libpython3.14.a + headers + stdlib)" \
             --prerelease
