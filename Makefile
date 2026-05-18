@@ -6,11 +6,13 @@ CPYTHON := $(BUILD_DIR)/cpython-wasi/install
 SYSCONFIG := $(BUILD_DIR)/cpython-wasi/build/lib.wasi-wasm32-3.14
 OUTPUTS := \
 	$(BUILD_DIR)/numpy-wasi.tar.gz \
+	$(BUILD_DIR)/numpy-static-wasi.tar.gz \
 	$(BUILD_DIR)/pydantic_core-wasi.tar.gz \
 	$(BUILD_DIR)/regex-wasi.tar.gz \
 	$(BUILD_DIR)/tiktoken-wasi.tar.gz \
 	$(BUILD_DIR)/Pillow-wasi.tar.gz \
-	$(BUILD_DIR)/scipy-wasi.tar.gz
+	$(BUILD_DIR)/scipy-wasi.tar.gz \
+	$(BUILD_DIR)/cpython-3.14-wasi.tar.gz
 
 # Disabled (require WASI-incompatible deps or not needed for eval functions):
 #	$(BUILD_DIR)/pandas-wasi.tar.gz \
@@ -37,17 +39,19 @@ HOST_ARCH := $(shell uname -m | sed -e 's/aarch64/arm64/')
 
 PYO3_CROSS_LIB_DIR := $(SYSCONFIG)
 
-.PHONY: all prerequisites numpy pydantic regex tiktoken pillow scipy
+.PHONY: all prerequisites numpy numpy-static pydantic regex tiktoken pillow scipy cpython-tarball
 all: $(OUTPUTS)
 
 # Convenience phony aliases for CI steps (avoids absolute-path issues with $(abspath))
 prerequisites: $(WASI_SDK) $(CPYTHON)
 numpy: $(BUILD_DIR)/numpy-wasi.tar.gz
+numpy-static: $(BUILD_DIR)/numpy-static-wasi.tar.gz
 pydantic: $(BUILD_DIR)/pydantic_core-wasi.tar.gz
 regex: $(BUILD_DIR)/regex-wasi.tar.gz
 tiktoken: $(BUILD_DIR)/tiktoken-wasi.tar.gz
 pillow: $(BUILD_DIR)/Pillow-wasi.tar.gz
 scipy: $(BUILD_DIR)/scipy-wasi.tar.gz
+cpython-tarball: $(BUILD_DIR)/cpython-3.14-wasi.tar.gz
 
 $(OUTPUTS): $(WASI_SDK) $(CPYTHON)
 
@@ -86,6 +90,22 @@ $(BUILD_DIR)/numpy-wasi.tar.gz: $(WASI_SDK) $(CPYTHON)
 	(cd numpy && CROSS_PREFIX=$(CPYTHON) WASI_SDK_PATH=$(WASI_SDK) bash build.sh)
 	cp -a numpy/build/numpy "$(@D)"
 	(cd "$(@D)" && tar czf numpy-wasi.tar.gz numpy)
+
+$(BUILD_DIR)/numpy-static-wasi.tar.gz: $(WASI_SDK) $(CPYTHON)
+	@mkdir -p "$(@D)"
+	(cd numpy && CROSS_PREFIX=$(CPYTHON) WASI_SDK_PATH=$(WASI_SDK) bash build-static.sh)
+	cp -a numpy/build-static "$(@D)/numpy-static"
+	(cd "$(@D)" && tar czf numpy-static-wasi.tar.gz numpy-static)
+
+$(BUILD_DIR)/cpython-3.14-wasi.tar.gz: $(WASI_SDK) $(CPYTHON)
+	@mkdir -p "$(@D)"
+	# Package libpython3.14.a, headers, and stdlib for downstream consumers
+	mkdir -p "$(@D)/cpython-3.14-wasi"
+	cp $(CPYTHON)/lib/libpython3.14.a "$(@D)/cpython-3.14-wasi/"
+	cp -a $(CPYTHON)/include/python3.14 "$(@D)/cpython-3.14-wasi/include/"
+	cp -a $(CPYTHON)/lib/python3.14 "$(@D)/cpython-3.14-wasi/lib/"
+	(cd "$(@D)" && tar czf cpython-3.14-wasi.tar.gz cpython-3.14-wasi)
+	rm -rf "$(@D)/cpython-3.14-wasi"
 
 $(BUILD_DIR)/pandas-wasi.tar.gz: $(WASI_SDK) $(CPYTHON)
 	@mkdir -p "$(@D)"
