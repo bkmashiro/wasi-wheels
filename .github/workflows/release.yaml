@@ -75,6 +75,30 @@ jobs:
         shell: bash
         run: make numpy
 
+      - name: Cache numpy-static archives
+        id: cache-numpy-static
+        uses: actions/cache@v4
+        with:
+          path: build/numpy-static-wasi.tar.gz
+          key: numpy-static-wasi-cpython-3.14.0-wasi-33-${{ hashFiles('numpy/**') }}
+
+      - name: Build numpy-static
+        if: steps.cache-numpy-static.outputs.cache-hit != 'true'
+        shell: bash
+        run: make numpy-static
+
+      - name: Cache CPython 3.14 WASI tarball
+        id: cache-cpython-tarball
+        uses: actions/cache@v4
+        with:
+          path: build/cpython-3.14-wasi.tar.gz
+          key: cpython-3.14-wasi-tarball-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Package CPython 3.14 WASI tarball
+        if: steps.cache-cpython-tarball.outputs.cache-hit != 'true'
+        shell: bash
+        run: make cpython-tarball
+
       - name: Cache pydantic_core wheel
         id: cache-pydantic
         uses: actions/cache@v4
@@ -225,5 +249,5 @@ jobs:
           gh release create latest *.tar.gz \
             --repo ${{ github.repository }} \
             --title "Development Build" \
-            --notes "Latest WASI wheels built from \`main\` (numpy, pydantic_core, regex, tiktoken, Pillow, scipy for CPython 3.14 / wasm32-wasip1)" \
+            --notes "Latest WASI wheels built from \`main\` (numpy, numpy-static, pydantic_core, regex, tiktoken, Pillow, scipy for CPython 3.14 / wasm32-wasip1; plus cpython-3.14-wasi.tar.gz with libpython3.14.a + headers + stdlib)" \
             --prerelease
